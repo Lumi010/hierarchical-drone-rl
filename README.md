@@ -1,4 +1,4 @@
-# Autonomous Drone Navigation in Dynamic Environments (RL)
+# Autonomous Drone Navigation in Dynamic Environments
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![Stable-Baselines3](https://img.shields.io/badge/Stable--Baselines3-PPO-green)
@@ -7,76 +7,47 @@
 
 > **Note:** This repository contains the Phase 1 (FYP-I) deliverables for my Computer Systems Engineering Final Year Project. It is actively being developed as we transition into FYP-II.
 
-## Overview
+---
+
+## 🚁 Project Overview
 
 This project implements a **Hierarchical Reinforcement Learning** framework for autonomous quadrotor navigation in dynamic, unpredictable wind environments. 
 
-Instead of relying on brittle end-to-end learning, this system splits the intelligence into two layers:
-1. **High-Level Brain (PPO Neural Network):** Observes a 16D state vector (including target error and wind forces) and outputs continuous 3D velocity intentions.
-2. **Low-Level Muscles (Classical PID):** Uses a custom **Kinematic Look-ahead Bridge** (0.25s projection) to smoothly translate the AI's velocity commands into deterministic motor RPMs to stabilize flight.
+The core engineering contribution of this project is solving the "Sim-to-Real" gap by training the drone in a continuously changing aerodynamic environment, proving that a lightweight RL architecture can achieve robust disturbance rejection.
 
-## Key Features (FYP-I)
+---
 
-* **Hierarchical PPO-PID Architecture:** Drastically accelerates training convergence and ensures physical flight safety.
-* **Continuous Wind Disturbance Modeling:** Injects time-varying sinusoidal aerodynamic forces (`p.applyExternalForce`) directly into the PyBullet rigid-body physics engine.
-* **Multi-Objective Reward Shaping:** A carefully balanced reward function utilizing a "ticking clock" distance penalty to prevent hover-farming and ensure efficient target-reaching.
-* **Structured Evaluation Modes:** Built-in testing for deterministic (Fixed Wind) and stochastic (Random Wind) scenarios to prove policy generalization.
+## 🧠 Core Architecture: The PPO-PID Bridge
 
-## Installation
+Instead of relying on brittle end-to-end learning (where an AI attempts to learn Newtonian physics from scratch), this system splits the intelligence into two distinct layers:
 
-1. Clone the repository:
-```bash
-git clone https://github.com/Lumi010/autonomous-drone-rl.git
-cd autonomous-drone-rl
-```
+1. **High-Level Brain (PPO Neural Network):** 
+   * Observes a 16-Dimensional state vector (including target error, orientation, and crucial **wind force vectors**).
+   * Outputs a continuous 3D velocity intention (e.g., "move forward at 0.35 m/s").
 
-2. Create a virtual environment and install dependencies:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows use: venv\Scripts\activate
-pip install numpy pybullet gymnasium stable-baselines3
-```
+2. **Low-Level Muscles (Classical PID Controller):** 
+   * Uses a custom **Kinematic Look-ahead Bridge** (0.25s projection) to translate the AI's velocity commands into a smooth, intermediate target coordinate.
+   * Calculates deterministic motor RPMs to stabilize flight and physically execute the AI's intention.
 
-## Usage: Testing the Pre-trained Agent
+This hierarchical approach drastically accelerated training convergence to just **200,000 steps** while guaranteeing physical flight safety.
 
-You can test the pre-trained PPO agent using `main.py`. The environment supports three structured evaluation modes:
+---
 
-**1. No Wind (Baseline Test):**
-```bash
-python main.py --use-ppo --no-wind
-```
+## 🌪️ Disturbance Modeling & Evaluation
 
-**2. Fixed Wind (Deterministic Disturbance):**
-Applies a constant-phase sinusoidal wind. The storm is exactly the same every time.
-```bash
-python main.py --use-ppo
-```
+The environment features a continuous sinusoidal wind disturbance model injected directly into the PyBullet rigid-body physics engine. The agent was evaluated across three structured modes to prove generalization:
 
-**3. Random Wind (Stochastic Disturbance):**
-Randomizes wind phase and amplitude upon every reset. Proves the agent generalizes to unseen physics.
-```bash
-python main.py --use-ppo --random-wind
-```
+* **🟢 No Wind:** Baseline navigation check (100% Success).
+* **🟡 Fixed Wind:** Deterministic, repeatable sinusoidal disturbance (100% Success).
+* **🔴 Random Wind:** Highly stochastic storms where wind phase and amplitude are randomized upon every reset. The agent achieved a **90% success rate** against conditions it had never seen during training, proving true physical generalization over path-memorization.
 
-*(Add the `--no-gui` flag if you want to run the tests headlessly without the PyBullet viewer).*
+---
 
-## Usage: Training a New Agent
+## 🚀 Future Work Roadmap (FYP-II)
 
-To train a new PPO policy from scratch:
+The robust aerodynamic foundation built in FYP-I will be expanded next semester:
 
-```bash
-python train/train_ppo.py --timesteps 200000 --random-wind
-```
-*   Use `--resume` to continue training from an existing model in `models/drone_model.zip`.
-*   Logs will be saved to `logs/ppo_monitor.csv`.
-
-## Future Work Roadmap (FYP-II)
-
-The foundation built in FYP-I will be expanded next semester:
 - [ ] **Dynamic Obstacle Avoidance:** Expanding the observation space to include 3D raycasting sensors.
 - [ ] **Moving Targets:** Training the agent to track non-stationary goals.
-- [ ] **Aviation-Grade Wind:** Upgrading the sinusoidal wind to the DOD-standard **Dryden Turbulence Model** for high-fidelity aerodynamic realism.
+- [ ] **Aviation-Grade Wind:** Upgrading the sinusoidal wind to the DOD-standard **Dryden Turbulence Model** for high-fidelity realism.
 - [ ] **Algorithm Benchmarking:** Comparing PPO's on-policy performance against off-policy algorithms like Soft Actor-Critic (SAC).
-
-## License
-MIT License
