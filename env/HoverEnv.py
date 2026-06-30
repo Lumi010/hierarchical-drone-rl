@@ -99,13 +99,14 @@ class HoverEnv(BaseSingleAgentAviary):
         self.EPISODE_LEN_SEC = 12
 
     def reset(self):
-        obs = super().reset()  # NOTE: BaseAviary.reset() calls p.resetSimulation() which destroys ALL bodies
+        # FYP-II Phase 5: Clear stale obstacle IDs before super().reset()
+        # because BaseAviary.reset() calls p.resetSimulation() (destroys all bodies)
+        # then _housekeeping() -> _addObstacles() re-creates them.
+        self.obstacle_ids = []
+
+        obs = super().reset()  # resetSimulation → _housekeeping → _addObstacles
         if hasattr(self, "ctrl"):
             self.ctrl.reset()
-
-        # FYP-II Phase 5: Re-spawn obstacles after resetSimulation destroyed them
-        self.obstacle_ids = []  # Clear stale IDs from previous episode
-        self._addObstacles()
 
         self.previous_distance = self._distance_to_target()
         self.episode_reward = 0.0
@@ -192,16 +193,17 @@ class HoverEnv(BaseSingleAgentAviary):
         F_v = np.zeros(3, dtype=np.float32)
         
         if self.OBSTACLES and hasattr(self, "obstacle_positions"):
-            d_inf = 0.8  # distance of influence (80cm)
-            k_r = 0.04   # repulsive force scaling
-            k_v = 0.06   # vortex force scaling
+            d_inf = 1.2  # distance of influence — start steering 1.2m away
+            k_r = 0.8    # repulsive force scaling (strong push away)
+            k_v = 1.2    # vortex force scaling (strong tangential swirl)
             
             for obs_pos in self.obstacle_positions:
                 to_drone = state[0:2] - obs_pos[0:2]
                 dist = np.linalg.norm(to_drone)
                 
                 if dist < d_inf:
-                    dist = max(dist, 0.01)
+                    # Clamp minimum distance to obstacle radius to prevent division blowup
+                    dist = max(dist, self.obstacle_radius + 0.02)
                     dir_away = to_drone / dist
                     
                     # Repulsive force: F_r = k_r * (1/d - 1/d_inf) * (1/d^2)
