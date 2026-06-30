@@ -36,6 +36,7 @@ class HoverEnv(BaseSingleAgentAviary):
         max_xy_speed=0.35,
         max_z_speed=0.22,
         log_every_steps=120,
+        randomize_dynamics=False,
     ):
         self.TARGET_POS = np.array(target_xyz if target_xyz is not None else [1.0, 0.6, 1.0], dtype=np.float32)
         self.WIND_ENABLED = bool(wind_enabled)
@@ -64,6 +65,10 @@ class HoverEnv(BaseSingleAgentAviary):
         self.last_ppo_action = np.zeros(3, dtype=np.float32)
         self.action_difference = np.zeros(3, dtype=np.float32)
 
+        # FYP-II Phase 4: Curriculum Learning & Domain Randomization
+        self.total_env_steps = 0
+        self.RANDOMIZE_DYNAMICS = bool(randomize_dynamics)
+
         if initial_xyzs is None:
             initial_xyzs = np.array([[0.0, 0.0, 0.25]])
 
@@ -79,6 +84,12 @@ class HoverEnv(BaseSingleAgentAviary):
             obs=obs,
             act=act,
         )
+
+        # FYP-II Phase 4: Store nominal properties loaded from URDF
+        self.NOMINAL_M = self.M
+        self.NOMINAL_J_DIAG = np.array([self.J[0,0], self.J[1,1], self.J[2,2]], dtype=np.float32)
+        self.NOMINAL_KF = self.KF
+        self.NOMINAL_KM = self.KM
 
         # FYP-II Phase 3: Initialize continuous turbulence filters
         self._init_dryden_filters()
@@ -136,6 +147,9 @@ class HoverEnv(BaseSingleAgentAviary):
     def _preprocessAction(self, action):
         action = np.asarray(action, dtype=np.float32).reshape(3,)
         action = np.clip(action, -1.0, 1.0)
+
+        # FYP-II Phase 4: Track total training steps
+        self.total_env_steps += 1
 
         # FYP-II Phase 2: Compute action difference for smoothness penalty, then update
         self.action_difference = action - self.last_ppo_action
@@ -219,19 +233,65 @@ class HoverEnv(BaseSingleAgentAviary):
         self._draw_wind()
 
     def _reset_wind(self):
+        # FYP-II Phase 4: Curriculum Learning
+        # Define 3 stages based on total environment steps
+        if self.total_env_steps < 30000:
+            # Stage 1: Calm air, no dynamics randomization
+            self.current_curriculum_stage = 1
+            active_wind_strength = 0.0
+            active_rand_scale = 0.0
+        elif self.total_env_steps < 80000:
+            # Stage 2: Light wind, moderate dynamics randomization (50% bounds)
+            self.current_curriculum_stage = 2
+            active_wind_strength = self.WIND_STRENGTH * 0.5
+            active_rand_scale = 0.5
+        else:
+            # Stage 3: Full storm, full dynamics randomization (100% bounds)
+            self.current_curriculum_stage = 3
+            active_wind_strength = self.WIND_STRENGTH
+            active_rand_scale = 1.0
+
+        # Compute wind strength scale (apply random fluctuations if RANDOM_WIND is enabled)
         if not self.RANDOM_WIND:
             self.wind_phase = np.zeros(2, dtype=np.float32)
-            self.current_wind_strength = self.WIND_STRENGTH
-            return
+            self.current_wind_strength = active_wind_strength
+        else:
+            self.wind_phase = np.random.uniform(0.0, 2.0 * np.pi, size=2).astype(np.float32)
+            strength_scale = np.random.uniform(0.75, 1.25)
+            self.current_wind_strength = active_wind_strength * strength_scale
 
-        self.wind_phase = np.random.uniform(0.0, 2.0 * np.pi, size=2).astype(np.float32)
-        strength_scale = np.random.uniform(0.75, 1.25)
-        self.current_wind_strength = self.WIND_STRENGTH * strength_scale
-
-        # FYP-II Phase 3: Reset Dryden filter states
+        # Reset Dryden filter states
         if hasattr(self, "dryden_x_u") and self.dryden_x_u is not None:
             self.dryden_x_u.fill(0.0)
             self.dryden_x_v.fill(0.0)
+
+        # FYP-II Phase 4: Domain Randomization
+        # Randomize mass, inertia, and motor coefficients if enabled
+        if self.RANDOMIZE_DYNAMICS and active_rand_scale > 0.0:
+            # 1. Mass randomization: +/-15% scaled by curriculum
+            mass_scale = 1.0 + np.random.uniform(-0.15, 0.15) * active_rand_scale
+            self.M = self.NOMINAL_M * mass_scale
+            self.GRAVITY = self.G * self.M
+            p.changeDynamics(self.DRONE_IDS[0], -1, mass=self.M, physicsClientId=self.CLIENT)
+
+            # 2. Inertia diagonal randomization: +/-10% scaled by curriculum
+            inertia_scale = 1.0 + np.random.uniform(-0.10, 0.10, size=3) * active_rand_scale
+            random_inertia = self.NOMINAL_J_DIAG * inertia_scale
+            p.changeDynamics(self.DRONE_IDS[0], -1, localInertiaDiagonal=random_inertia.tolist(), physicsClientId=self.CLIENT)
+
+            # 3. Motor coefficient randomization: +/-8% scaled by curriculum
+            kf_scale = 1.0 + np.random.uniform(-0.08, 0.08) * active_rand_scale
+            km_scale = 1.0 + np.random.uniform(-0.08, 0.08) * active_rand_scale
+            self.KF = self.NOMINAL_KF * kf_scale
+            self.KM = self.NOMINAL_KM * km_scale
+        else:
+            # Restore nominal parameters if randomization is disabled or at Stage 1
+            self.M = self.NOMINAL_M
+            self.GRAVITY = self.G * self.M
+            self.KF = self.NOMINAL_KF
+            self.KM = self.NOMINAL_KM
+            if hasattr(self, "DRONE_IDS") and len(self.DRONE_IDS) > 0:
+                p.changeDynamics(self.DRONE_IDS[0], -1, mass=self.NOMINAL_M, localInertiaDiagonal=self.NOMINAL_J_DIAG.tolist(), physicsClientId=self.CLIENT)
 
     def _computeReward(self):
         state = self._getDroneStateVector(0)
