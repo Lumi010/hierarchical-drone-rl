@@ -59,6 +59,9 @@ class HoverEnv(BaseSingleAgentAviary):
         self.episode_steps = 0
         self.episode_success = False
         self._wind_line_id = -1
+        # FYP-II Phase 2: Temporal awareness — track the previous PPO action
+        self.last_ppo_action = np.zeros(3, dtype=np.float32)
+        self.action_difference = np.zeros(3, dtype=np.float32)
 
         if initial_xyzs is None:
             initial_xyzs = np.array([[0.0, 0.0, 0.25]])
@@ -91,6 +94,9 @@ class HoverEnv(BaseSingleAgentAviary):
         self.episode_success = False
         self.last_wind = np.zeros(3, dtype=np.float32)
         self.last_desired_velocity = np.zeros(3, dtype=np.float32)
+        # FYP-II Phase 2: Reset temporal action tracking
+        self.last_ppo_action = np.zeros(3, dtype=np.float32)
+        self.action_difference = np.zeros(3, dtype=np.float32)
         self._reset_wind()
         self._draw_target()
         return obs
@@ -99,7 +105,8 @@ class HoverEnv(BaseSingleAgentAviary):
         return spaces.Box(low=-np.ones(3), high=np.ones(3), dtype=np.float32)
 
     def _observationSpace(self):
-        return spaces.Box(low=-np.ones(16), high=np.ones(16), dtype=np.float32)
+        # FYP-II Phase 2: Expanded from 16D to 19D (adds prev action [vx, vy, vz])
+        return spaces.Box(low=-np.ones(19), high=np.ones(19), dtype=np.float32)
 
     def _computeObs(self):
         state = self._getDroneStateVector(0)
@@ -112,18 +119,23 @@ class HoverEnv(BaseSingleAgentAviary):
         wind_scale = max(self.WIND_STRENGTH, 0.001)
 
         obs = np.hstack([
-            np.clip(target_error / 3.0, -1.0, 1.0),
-            np.clip(distance / 3.0, 0.0, 1.0),
-            np.clip(vel / 3.0, -1.0, 1.0),
-            np.clip(rpy / np.pi, -1.0, 1.0),
-            np.clip(ang_vel / 8.0, -1.0, 1.0),
-            np.clip(self.last_wind / wind_scale, -1.0, 1.0),
+            np.clip(target_error / 3.0, -1.0, 1.0),      # dims  0-2:  target error
+            np.clip(distance / 3.0, 0.0, 1.0),            # dim   3:    scalar distance
+            np.clip(vel / 3.0, -1.0, 1.0),                # dims  4-6:  linear velocity
+            np.clip(rpy / np.pi, -1.0, 1.0),              # dims  7-9:  roll/pitch/yaw
+            np.clip(ang_vel / 8.0, -1.0, 1.0),            # dims 10-12: angular velocity
+            np.clip(self.last_wind / wind_scale, -1.0, 1.0),  # dims 13-15: wind vector
+            self.last_ppo_action,                          # dims 16-18: prev PPO action (already in [-1,1])
         ])
         return obs.astype(np.float32)
 
     def _preprocessAction(self, action):
         action = np.asarray(action, dtype=np.float32).reshape(3,)
         action = np.clip(action, -1.0, 1.0)
+
+        # FYP-II Phase 2: Compute action difference for smoothness penalty, then update
+        self.action_difference = action - self.last_ppo_action
+        self.last_ppo_action = action.copy()
 
         desired_velocity = np.array([
             action[0] * self.MAX_XY_SPEED,
@@ -207,6 +219,17 @@ class HoverEnv(BaseSingleAgentAviary):
         reward -= 0.05 * np.linalg.norm(vel)
         reward -= 0.3 * tilt
         reward -= 0.02 * np.linalg.norm(ang_vel)
+
+        # FYP-II Phase 2: Action smoothness penalty — penalises jerky changes between steps
+        # Inspired by SimpleFlight (2025): action smoothness is #1 factor for sim-to-real transfer
+        smoothness_penalty = -0.1 * float(np.sum(np.square(self.action_difference)))
+        reward += smoothness_penalty
+
+        # FYP-II Phase 2: Energy regularisation — penalises unnecessarily high motor RPMs
+        # Inspired by Energy-Aware UAV Navigation DRL (IEEE 2024)
+        motor_rpms = np.clip(self.last_action[0, :], 0, None)  # shape (4,), clamp to non-negative
+        energy_penalty = -0.01 * float(np.mean(np.square(motor_rpms / 10000.0)))
+        reward += energy_penalty
 
         if progress < 0.0:
             reward += 15.0 * progress
