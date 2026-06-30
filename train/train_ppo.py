@@ -53,6 +53,7 @@ def make_env(args):
         target_xyz=target,
         log_every_steps=0,
         randomize_dynamics=args.randomize_dynamics,
+        obstacles_enabled=not args.no_obstacles,
     ))
 
 
@@ -105,6 +106,7 @@ def parse_args():
     parser.add_argument("--target-y", type=float, default=0.6)
     parser.add_argument("--target-z", type=float, default=1.0)
     parser.add_argument("--randomize-dynamics", action="store_true", help="Enable Domain Randomization (mass, inertia, motor kf/km)")
+    parser.add_argument("--no-obstacles", action="store_true", help="Disable obstacle cylinders in environment")
     return parser.parse_args()
 
 

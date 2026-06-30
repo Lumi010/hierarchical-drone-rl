@@ -45,6 +45,7 @@ def run_demo(args):
         random_wind=args.random_wind,
         target_xyz=np.array([args.target_x, args.target_y, args.target_z], dtype=np.float32),
         log_every_steps=0,
+        obstacles_enabled=not args.no_obstacles,
     )
 
     os.makedirs("logs", exist_ok=True)
@@ -152,6 +153,7 @@ def parse_args():
     parser.add_argument("--model-path", default="models/drone_model")
     parser.add_argument("--no-gui", action="store_true")
     parser.add_argument("--no-wind", action="store_true")
+    parser.add_argument("--no-obstacles", action="store_true", help="Disable obstacle cylinders in environment")
     return parser.parse_args()
 
 
