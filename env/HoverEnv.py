@@ -1,6 +1,7 @@
 import numpy as np
 import pybullet as p
 from gym import spaces
+from scipy.signal import tf2ss, cont2discrete
 
 from env.BaseSingleAgentAviary import ActionType, BaseSingleAgentAviary, ObservationType
 from utils.enums import DroneModel, Physics
@@ -78,6 +79,9 @@ class HoverEnv(BaseSingleAgentAviary):
             obs=obs,
             act=act,
         )
+
+        # FYP-II Phase 3: Initialize continuous turbulence filters
+        self._init_dryden_filters()
 
         self.EPISODE_LEN_SEC = 12
 
@@ -183,13 +187,26 @@ class HoverEnv(BaseSingleAgentAviary):
             self.last_wind = np.zeros(3, dtype=np.float32)
             return
 
-        t = self.step_counter * self.TIMESTEP
-        wind = np.array([
-            self.current_wind_strength * np.sin(0.7 * t + self.wind_phase[0]),
-            self.current_wind_strength * np.cos(0.5 * t + self.wind_phase[1]),
-            0.0,
-        ], dtype=np.float32)
+        # FYP-II Phase 3: MIL-F-8785C Dryden Turbulence model
+        # Generate independent Gaussian white noise scaled to discrete time step
+        dt = self.TIMESTEP
+        w_scale = 1.0 / np.sqrt(dt)
+        w_u = np.random.normal(0.0, 1.0) * w_scale
+        w_v = np.random.normal(0.0, 1.0) * w_scale
 
+        # Step the discrete-time state-space system equations
+        self.dryden_x_u = np.dot(self.Ad_u, self.dryden_x_u) + self.Bd_u * w_u
+        self.dryden_x_v = np.dot(self.Ad_v, self.dryden_x_v) + self.Bd_v * w_v
+
+        # Calculate outputs (gust velocities)
+        gust_u = float(np.dot(self.Cd_u, self.dryden_x_u) + self.Dd_u * w_u)
+        gust_v = float(np.dot(self.Cd_v, self.dryden_x_v) + self.Dd_v * w_v)
+
+        # Normalize outputs and scale to convert to wind force in Newtons
+        force_x = self.current_wind_strength * (gust_u / self.sigma_u)
+        force_y = self.current_wind_strength * (gust_v / self.sigma_v)
+
+        wind = np.array([force_x, force_y, 0.0], dtype=np.float32)
         self.last_wind = wind
         p.applyExternalForce(
             self.DRONE_IDS[nth_drone],
@@ -210,6 +227,11 @@ class HoverEnv(BaseSingleAgentAviary):
         self.wind_phase = np.random.uniform(0.0, 2.0 * np.pi, size=2).astype(np.float32)
         strength_scale = np.random.uniform(0.75, 1.25)
         self.current_wind_strength = self.WIND_STRENGTH * strength_scale
+
+        # FYP-II Phase 3: Reset Dryden filter states
+        if hasattr(self, "dryden_x_u") and self.dryden_x_u is not None:
+            self.dryden_x_u.fill(0.0)
+            self.dryden_x_v.fill(0.0)
 
     def _computeReward(self):
         state = self._getDroneStateVector(0)
@@ -335,3 +357,49 @@ class HoverEnv(BaseSingleAgentAviary):
             replaceItemUniqueId=int(self._wind_line_id),
             physicsClientId=self.CLIENT,
         )
+
+    def _init_dryden_filters(self):
+        # Nominal parameters for low altitude (under 1000 ft) per MIL-F-8785C
+        h_ft = 20.0  # nominal altitude in feet (approx 6 meters)
+        V_a = 1.0    # nominal airspeed in m/s (clamped to prevent division by zero in hover)
+
+        # Conversion: 1 knot = 1.68781 ft/s
+        W_20_ft_per_sec = 15.0 * 1.68781  # light turbulence wind speed at 20 ft
+        V_a_ft_per_sec = V_a * 3.28084
+
+        # Turbulence scale lengths (L_u, L_v in feet)
+        L_u = h_ft / ((0.177 + 0.000823 * h_ft) ** 1.2)
+        L_v = L_u
+
+        # Turbulence intensities (sigma_u, sigma_v in ft/s)
+        sigma_w = 0.1 * W_20_ft_per_sec
+        sigma_u = sigma_w / ((0.177 + 0.000823 * h_ft) ** 0.4)
+        sigma_v = sigma_u
+
+        self.sigma_u = sigma_u
+        self.sigma_v = sigma_v
+
+        # Time constants (T_u, T_v in seconds)
+        T_u = L_u / V_a_ft_per_sec
+        T_v = L_v / V_a_ft_per_sec
+
+        # Longitudinal transfer function: H_u(s) = sigma_u * sqrt(2 * T_u / pi) / (T_u * s + 1)
+        num_u = [sigma_u * np.sqrt(2.0 * T_u / np.pi)]
+        den_u = [T_u, 1.0]
+
+        # Lateral transfer function: H_v(s) = sigma_v * sqrt(T_v / pi) * (sqrt(3) * T_v * s + 1) / (T_v^2 * s^2 + 2 * T_v * s + 1)
+        num_v = [sigma_v * np.sqrt(T_v / np.pi) * np.sqrt(3.0) * T_v, sigma_v * np.sqrt(T_v / np.pi)]
+        den_v = [T_v ** 2, 2.0 * T_v, 1.0]
+
+        # Convert to continuous state-space representation
+        Ac_u, Bc_u, Cc_u, Dc_u = tf2ss(num_u, den_u)
+        Ac_v, Bc_v, Cc_v, Dc_v = tf2ss(num_v, den_v)
+
+        # Discretize continuous state space at 240Hz using bilinear transform
+        dt = 1.0 / self.SIM_FREQ
+        self.Ad_u, self.Bd_u, self.Cd_u, self.Dd_u, _ = cont2discrete((Ac_u, Bc_u, Cc_u, Dc_u), dt, method="bilinear")
+        self.Ad_v, self.Bd_v, self.Cd_v, self.Dd_v, _ = cont2discrete((Ac_v, Bc_v, Cc_v, Dc_v), dt, method="bilinear")
+
+        # Initialize filter state vectors
+        self.dryden_x_u = np.zeros((Ac_u.shape[0], 1), dtype=np.float32)
+        self.dryden_x_v = np.zeros((Ac_v.shape[0], 1), dtype=np.float32)
