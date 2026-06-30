@@ -67,65 +67,70 @@ def run_demo(args):
             episode_reward = 0.0
             print(f"\n=== Episode {episode + 1}/{args.episodes} ===")
 
-            for step in range(args.max_steps):
-                if model is None:
-                    action = simple_velocity_policy(obs)
-                else:
-                    action, _ = model.predict(obs, deterministic=True)
+            try:
+                for step in range(args.max_steps):
+                    if model is None:
+                        action = simple_velocity_policy(obs)
+                    else:
+                        action, _ = model.predict(obs, deterministic=True)
 
-                obs, reward, done, info = env.step(action)
-                episode_reward += reward
+                    obs, reward, done, info = env.step(action)
+                    episode_reward += reward
 
-                pos = info["position"]
-                vel = info["velocity"]
-                rpy = info["rpy"]
-                wind = info["wind"]
-                cmd = info["desired_velocity"]
+                    pos = info["position"]
+                    vel = info["velocity"]
+                    rpy = info["rpy"]
+                    wind = info["wind"]
+                    cmd = info["desired_velocity"]
 
-                writer.writerow({
-                    "episode": episode + 1,
-                    "step": step,
-                    "distance": info["distance"],
-                    "reward": reward,
-                    "episode_reward": episode_reward,
-                    "x": pos[0],
-                    "y": pos[1],
-                    "z": pos[2],
-                    "vx": vel[0],
-                    "vy": vel[1],
-                    "vz": vel[2],
-                    "roll": rpy[0],
-                    "pitch": rpy[1],
-                    "yaw": rpy[2],
-                    "wind_x": wind[0],
-                    "wind_y": wind[1],
-                    "wind_z": wind[2],
-                    "cmd_vx": cmd[0],
-                    "cmd_vy": cmd[1],
-                    "cmd_vz": cmd[2],
-                    "success": info["success"],
-                })
+                    writer.writerow({
+                        "episode": episode + 1,
+                        "step": step,
+                        "distance": info["distance"],
+                        "reward": reward,
+                        "episode_reward": episode_reward,
+                        "x": pos[0],
+                        "y": pos[1],
+                        "z": pos[2],
+                        "vx": vel[0],
+                        "vy": vel[1],
+                        "vz": vel[2],
+                        "roll": rpy[0],
+                        "pitch": rpy[1],
+                        "yaw": rpy[2],
+                        "wind_x": wind[0],
+                        "wind_y": wind[1],
+                        "wind_z": wind[2],
+                        "cmd_vx": cmd[0],
+                        "cmd_vy": cmd[1],
+                        "cmd_vz": cmd[2],
+                        "success": info["success"],
+                    })
 
-                if step % args.print_every == 0:
-                    print(
-                        "step {:04d} | dist {:.3f} | reward {:7.2f} | "
-                        "pos [{:.2f}, {:.2f}, {:.2f}] | "
-                        "cmd [{:.2f}, {:.2f}, {:.2f}] | "
-                        "wind [{:.3f}, {:.3f}, {:.3f}]".format(
-                            step,
-                            info["distance"],
-                            episode_reward,
-                            pos[0], pos[1], pos[2],
-                            cmd[0], cmd[1], cmd[2],
-                            wind[0], wind[1], wind[2],
+                    if step % args.print_every == 0:
+                        print(
+                            "step {:04d} | dist {:.3f} | reward {:7.2f} | "
+                            "pos [{:.2f}, {:.2f}, {:.2f}] | "
+                            "cmd [{:.2f}, {:.2f}, {:.2f}] | "
+                            "wind [{:.3f}, {:.3f}, {:.3f}]".format(
+                                step,
+                                info["distance"],
+                                episode_reward,
+                                pos[0], pos[1], pos[2],
+                                cmd[0], cmd[1], cmd[2],
+                                wind[0], wind[1], wind[2],
+                            )
                         )
-                    )
 
-                if done:
-                    break
+                    if done:
+                        break
 
-                if not args.no_gui:
-                    time.sleep(1.0 / 240.0)
+                    if not args.no_gui:
+                        time.sleep(1.0 / 240.0)
+
+            except Exception as e:
+                print(f"\n[WARN] Simulation interrupted: {e}")
+                break
 
             print(
                 "Finished: reward={:.2f}, min_distance={:.3f}, max_tilt={:.3f}, success={}".format(

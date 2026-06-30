@@ -99,9 +99,13 @@ class HoverEnv(BaseSingleAgentAviary):
         self.EPISODE_LEN_SEC = 12
 
     def reset(self):
-        obs = super().reset()
+        obs = super().reset()  # NOTE: BaseAviary.reset() calls p.resetSimulation() which destroys ALL bodies
         if hasattr(self, "ctrl"):
             self.ctrl.reset()
+
+        # FYP-II Phase 5: Re-spawn obstacles after resetSimulation destroyed them
+        self.obstacle_ids = []  # Clear stale IDs from previous episode
+        self._addObstacles()
 
         self.previous_distance = self._distance_to_target()
         self.episode_reward = 0.0
@@ -538,12 +542,12 @@ class HoverEnv(BaseSingleAgentAviary):
         self.dryden_x_v = np.zeros((Ac_v.shape[0], 1), dtype=np.float32)
 
     def _addObstacles(self):
-        """Add static cylindrical column obstacles in PyBullet."""
+        """Add static cylindrical column obstacles in PyBullet.
+        
+        Called after every reset() because BaseAviary.reset() calls
+        p.resetSimulation() which destroys all previously created bodies.
+        """
         if not self.OBSTACLES:
-            return
-
-        # If obstacles are already loaded, do not recreate them
-        if hasattr(self, "obstacle_ids") and len(self.obstacle_ids) > 0:
             return
 
         self.obstacle_radius = 0.20
