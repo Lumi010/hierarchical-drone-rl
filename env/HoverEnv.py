@@ -137,10 +137,23 @@ class HoverEnv(BaseSingleAgentAviary):
         self.action_difference = action - self.last_ppo_action
         self.last_ppo_action = action.copy()
 
+        # FYP-II Phase 1: Residual Reinforcement Learning (RRL)
+        # Compute baseline proportional action to target position
+        state = self._getDroneStateVector(0)
+        target_error = self.TARGET_POS - state[0:3]
+        
+        base_action = np.zeros(3, dtype=np.float32)
+        base_action[0] = np.clip(0.55 * target_error[0], -0.8, 0.8)
+        base_action[1] = np.clip(0.55 * target_error[1], -0.8, 0.8)
+        base_action[2] = np.clip(0.85 * target_error[2], -0.9, 0.9)
+
+        # Total action = baseline action + PPO residual correction action
+        total_action = np.clip(base_action + action, -1.0, 1.0)
+
         desired_velocity = np.array([
-            action[0] * self.MAX_XY_SPEED,
-            action[1] * self.MAX_XY_SPEED,
-            action[2] * self.MAX_Z_SPEED,
+            total_action[0] * self.MAX_XY_SPEED,
+            total_action[1] * self.MAX_XY_SPEED,
+            total_action[2] * self.MAX_Z_SPEED,
         ], dtype=np.float32)
 
         state = self._getDroneStateVector(0)
