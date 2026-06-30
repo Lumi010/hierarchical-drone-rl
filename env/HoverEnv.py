@@ -116,6 +116,16 @@ class HoverEnv(BaseSingleAgentAviary):
         self.action_difference = np.zeros(3, dtype=np.float32)
         self._reset_wind()
         self._draw_target()
+
+        # FYP-II Phase 5: Position camera to focus directly on the drone, obstacle, and target
+        if self.GUI:
+            p.resetDebugVisualizerCamera(
+                cameraDistance=2.5,
+                cameraYaw=-45,
+                cameraPitch=-20,
+                cameraTargetPosition=[0.5, 0.3, 0.7],
+                physicsClientId=self.CLIENT
+            )
         return obs
 
     def _actionSpace(self):
@@ -536,7 +546,7 @@ class HoverEnv(BaseSingleAgentAviary):
         if hasattr(self, "obstacle_ids") and len(self.obstacle_ids) > 0:
             return
 
-        self.obstacle_radius = 0.15
+        self.obstacle_radius = 0.20
         self.obstacle_positions = [
             np.array([0.5, 0.3, 1.0], dtype=np.float32)  # half-way pillar directly in path
         ]
@@ -554,7 +564,7 @@ class HoverEnv(BaseSingleAgentAviary):
             p.GEOM_CYLINDER,
             radius=self.obstacle_radius,
             length=2.0,
-            rgbaColor=[0.9, 0.15, 0.15, 0.85],  # bright semi-transparent red
+            rgbaColor=[1.0, 0.0, 0.0, 1.0],  # solid opaque red for maximum visibility
             physicsClientId=self.CLIENT
         )
 
@@ -567,6 +577,7 @@ class HoverEnv(BaseSingleAgentAviary):
                 physicsClientId=self.CLIENT
             )
             self.obstacle_ids.append(body_id)
+            print(f"[INFO] Spawned cylinder obstacle with ID {body_id} at position {pos}")
 
     def _get_raycast_observations(self):
         """Returns 8 normalized distance measurements around the drone's current yaw."""
