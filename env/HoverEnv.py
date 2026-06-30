@@ -185,17 +185,17 @@ class HoverEnv(BaseSingleAgentAviary):
         state = self._getDroneStateVector(0)
         target_error = self.TARGET_POS - state[0:3]
         
-        # Calculate attractive force (target pull)
-        F_a = 0.55 * target_error
+        # Calculate attractive force (target pull) — strong enough to brake after avoidance
+        F_a = 0.85 * target_error
         
         # Calculate repulsive and vortex forces (obstacle push and swirl)
         F_r = np.zeros(3, dtype=np.float32)
         F_v = np.zeros(3, dtype=np.float32)
         
         if self.OBSTACLES and hasattr(self, "obstacle_positions"):
-            d_inf = 1.2  # distance of influence — start steering 1.2m away
-            k_r = 0.8    # repulsive force scaling (strong push away)
-            k_v = 1.2    # vortex force scaling (strong tangential swirl)
+            d_inf = 0.7  # distance of influence — start steering 70cm from obstacle center
+            k_r = 0.4    # repulsive force scaling
+            k_v = 0.6    # vortex force scaling (tangential swirl)
             
             for obs_pos in self.obstacle_positions:
                 to_drone = state[0:2] - obs_pos[0:2]
