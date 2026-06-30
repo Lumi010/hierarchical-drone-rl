@@ -37,6 +37,7 @@ class HoverEnv(BaseSingleAgentAviary):
         max_z_speed=0.22,
         log_every_steps=120,
         randomize_dynamics=False,
+        obstacles_enabled=True,
     ):
         self.TARGET_POS = np.array(target_xyz if target_xyz is not None else [1.0, 0.6, 1.0], dtype=np.float32)
         self.WIND_ENABLED = bool(wind_enabled)
@@ -68,6 +69,7 @@ class HoverEnv(BaseSingleAgentAviary):
         # FYP-II Phase 4: Curriculum Learning & Domain Randomization
         self.total_env_steps = 0
         self.RANDOMIZE_DYNAMICS = bool(randomize_dynamics)
+        self.OBSTACLES = bool(obstacles_enabled)
 
         if initial_xyzs is None:
             initial_xyzs = np.array([[0.0, 0.0, 0.25]])
@@ -120,8 +122,10 @@ class HoverEnv(BaseSingleAgentAviary):
         return spaces.Box(low=-np.ones(3), high=np.ones(3), dtype=np.float32)
 
     def _observationSpace(self):
-        # FYP-II Phase 2: Expanded from 16D to 19D (adds prev action [vx, vy, vz])
-        return spaces.Box(low=-np.ones(19), high=np.ones(19), dtype=np.float32)
+        # Base observation space is 19D (adds prev action to 16D base)
+        # FYP-II Phase 5: Expanded to 27D when obstacles are enabled (adds 8 normalized raycast distances)
+        dim = 27 if getattr(self, "OBSTACLES", False) else 19
+        return spaces.Box(low=-np.ones(dim), high=np.ones(dim), dtype=np.float32)
 
     def _computeObs(self):
         state = self._getDroneStateVector(0)
@@ -142,6 +146,12 @@ class HoverEnv(BaseSingleAgentAviary):
             np.clip(self.last_wind / wind_scale, -1.0, 1.0),  # dims 13-15: wind vector
             self.last_ppo_action,                          # dims 16-18: prev PPO action (already in [-1,1])
         ])
+
+        # FYP-II Phase 5: Query raycast sensors and append to observations (dims 19-26)
+        if self.OBSTACLES:
+            ray_obs = self._get_raycast_observations()
+            obs = np.hstack([obs, ray_obs])
+
         return obs.astype(np.float32)
 
     def _preprocessAction(self, action):
@@ -155,14 +165,51 @@ class HoverEnv(BaseSingleAgentAviary):
         self.action_difference = action - self.last_ppo_action
         self.last_ppo_action = action.copy()
 
-        # FYP-II Phase 1: Residual Reinforcement Learning (RRL)
-        # Compute baseline proportional action to target position
+        # FYP-II Phase 1: Residual Reinforcement Learning (RRL) with Vortex APF (Phase 5)
+        # Compute baseline navigation using Vortex Artificial Potential Fields (VAPF)
         state = self._getDroneStateVector(0)
         target_error = self.TARGET_POS - state[0:3]
         
+        # Calculate attractive force (target pull)
+        F_a = 0.55 * target_error
+        
+        # Calculate repulsive and vortex forces (obstacle push and swirl)
+        F_r = np.zeros(3, dtype=np.float32)
+        F_v = np.zeros(3, dtype=np.float32)
+        
+        if self.OBSTACLES and hasattr(self, "obstacle_positions"):
+            d_inf = 0.8  # distance of influence (80cm)
+            k_r = 0.04   # repulsive force scaling
+            k_v = 0.06   # vortex force scaling
+            
+            for obs_pos in self.obstacle_positions:
+                to_drone = state[0:2] - obs_pos[0:2]
+                dist = np.linalg.norm(to_drone)
+                
+                if dist < d_inf:
+                    dist = max(dist, 0.01)
+                    dir_away = to_drone / dist
+                    
+                    # Repulsive force: F_r = k_r * (1/d - 1/d_inf) * (1/d^2)
+                    fr_mag = k_r * (1.0 / dist - 1.0 / d_inf) * (1.0 / (dist ** 2))
+                    fr_2d = fr_mag * dir_away
+                    F_r[0] += fr_2d[0]
+                    F_r[1] += fr_2d[1]
+                    
+                    # Vortex force: tangential vector (rotated by 90 degrees)
+                    # Rotate dynamically toward target side to prevent orbiting away from target
+                    vortex_dir = np.array([-dir_away[1], dir_away[0]], dtype=np.float32)
+                    to_target = self.TARGET_POS[0:2] - state[0:2]
+                    if np.dot(vortex_dir, to_target) < 0:
+                        vortex_dir = -vortex_dir
+                    
+                    fv_2d = k_v * fr_mag * vortex_dir
+                    F_v[0] += fv_2d[0]
+                    F_v[1] += fv_2d[1]
+        
         base_action = np.zeros(3, dtype=np.float32)
-        base_action[0] = np.clip(0.55 * target_error[0], -0.8, 0.8)
-        base_action[1] = np.clip(0.55 * target_error[1], -0.8, 0.8)
+        base_action[0] = np.clip(F_a[0] + F_r[0] + F_v[0], -0.8, 0.8)
+        base_action[1] = np.clip(F_a[1] + F_r[1] + F_v[1], -0.8, 0.8)
         base_action[2] = np.clip(0.85 * target_error[2], -0.9, 0.9)
 
         # Total action = baseline action + PPO residual correction action
@@ -333,7 +380,17 @@ class HoverEnv(BaseSingleAgentAviary):
             reward += 100.0
             self.episode_success = True
 
-        if pos[2] < 0.10 or distance > 5.0 or tilt > 1.4:
+        # Check collision with obstacles
+        collision_with_obstacle = False
+        if self.OBSTACLES and hasattr(self, "obstacle_ids"):
+            for obs_id in self.obstacle_ids:
+                contacts = p.getContactPoints(bodyA=self.DRONE_IDS[0], bodyB=obs_id, physicsClientId=self.CLIENT)
+                if len(contacts) > 0:
+                    collision_with_obstacle = True
+                    reward -= 100.0  # Big penalty for crashing into obstacle
+                    break
+
+        if pos[2] < 0.10 or distance > 5.0 or tilt > 1.4 or collision_with_obstacle:
             reward -= 100.0
 
         self.previous_distance = distance
@@ -358,6 +415,12 @@ class HoverEnv(BaseSingleAgentAviary):
             return True
         if tilt > 1.4:
             return True
+        # Check collision with obstacles
+        if self.OBSTACLES and hasattr(self, "obstacle_ids"):
+            for obs_id in self.obstacle_ids:
+                contacts = p.getContactPoints(bodyA=self.DRONE_IDS[0], bodyB=obs_id, physicsClientId=self.CLIENT)
+                if len(contacts) > 0:
+                    return True
         if self.step_counter / self.SIM_FREQ > self.EPISODE_LEN_SEC:
             return True
         return False
@@ -463,3 +526,76 @@ class HoverEnv(BaseSingleAgentAviary):
         # Initialize filter state vectors
         self.dryden_x_u = np.zeros((Ac_u.shape[0], 1), dtype=np.float32)
         self.dryden_x_v = np.zeros((Ac_v.shape[0], 1), dtype=np.float32)
+
+    def _addObstacles(self):
+        """Add static cylindrical column obstacles in PyBullet."""
+        if not self.OBSTACLES:
+            return
+
+        # If obstacles are already loaded, do not recreate them
+        if hasattr(self, "obstacle_ids") and len(self.obstacle_ids) > 0:
+            return
+
+        self.obstacle_radius = 0.15
+        self.obstacle_positions = [
+            np.array([0.5, 0.3, 1.0], dtype=np.float32)  # half-way pillar directly in path
+        ]
+        self.obstacle_ids = []
+
+        # Cylindrical collision and visual shape definitions
+        col_shape = p.createCollisionShape(
+            p.GEOM_CYLINDER,
+            radius=self.obstacle_radius,
+            height=2.0,
+            physicsClientId=self.CLIENT
+        )
+        
+        vis_shape = p.createVisualShape(
+            p.GEOM_CYLINDER,
+            radius=self.obstacle_radius,
+            length=2.0,
+            rgbaColor=[0.9, 0.15, 0.15, 0.85],  # bright semi-transparent red
+            physicsClientId=self.CLIENT
+        )
+
+        for pos in self.obstacle_positions:
+            body_id = p.createMultiBody(
+                baseMass=0.0,  # Mass = 0 makes it static
+                baseCollisionShapeIndex=col_shape,
+                baseVisualShapeIndex=vis_shape,
+                basePosition=pos.tolist(),
+                physicsClientId=self.CLIENT
+            )
+            self.obstacle_ids.append(body_id)
+
+    def _get_raycast_observations(self):
+        """Returns 8 normalized distance measurements around the drone's current yaw."""
+        if not self.OBSTACLES or not hasattr(self, "obstacle_ids") or len(self.obstacle_ids) == 0:
+            return np.ones(8, dtype=np.float32)
+
+        state = self._getDroneStateVector(0)
+        pos = state[0:3]
+        rpy = state[7:10]
+        yaw = rpy[2]
+
+        max_ray_dist = 1.5
+        ray_from = []
+        ray_to = []
+
+        # Spacing rays at 45 degree intervals relative to current heading (yaw)
+        for i in range(8):
+            angle = yaw + i * (2.0 * np.pi / 8.0)
+            dx = max_ray_dist * np.cos(angle)
+            dy = max_ray_dist * np.sin(angle)
+            ray_from.append(pos)
+            ray_to.append(pos + np.array([dx, dy, 0.0], dtype=np.float32))
+
+        # Query batch raycasts from PyBullet
+        results = p.rayTestBatch(ray_from, ray_to, physicsClientId=self.CLIENT)
+        
+        ray_obs = []
+        for res in results:
+            hit_fraction = res[2]  # float value in [0.0, 1.0] representing distance
+            ray_obs.append(float(hit_fraction))
+
+        return np.array(ray_obs, dtype=np.float32)
