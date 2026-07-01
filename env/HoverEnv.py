@@ -567,24 +567,24 @@ class HoverEnv(BaseSingleAgentAviary):
         if not self.OBSTACLES:
             return
 
-        self.obstacle_radius = 0.15
+        self.obstacle_radius = 0.12
 
         # Define obstacles: position, velocity direction, patrol bounds [min, max] on moving axis
         # Obstacle 1: crosses the flight path side-to-side (moves along Y)
         # Obstacle 2: moves along X, sweeping across the approach corridor
         self.obstacle_configs = [
             {
-                "pos": np.array([0.4, 0.1, 1.0], dtype=np.float32),
-                "axis": 1,          # moves along Y (sweeps side-to-side)
-                "speed": 0.20,      # m/s
-                "bounds": [-0.2, 0.6],
+                "pos": np.array([0.35, -0.1, 1.0], dtype=np.float32),
+                "axis": 1,          # moves along Y
+                "speed": 0.15,      # m/s — slightly slower for smoother navigation
+                "bounds": [-0.4, 0.1],  # guards the bottom corridor, leaves Y > 0.1 open
                 "direction": 1.0,
             },
             {
-                "pos": np.array([0.6, 0.3, 0.7], dtype=np.float32),
-                "axis": 0,          # moves along X (sweeps through corridor)
+                "pos": np.array([0.70, 0.7, 0.7], dtype=np.float32),
+                "axis": 1,          # moves along Y
                 "speed": 0.15,      # m/s
-                "bounds": [0.3, 0.7],  # stays in approach zone, away from target
+                "bounds": [0.5, 0.9],  # guards the top corridor near the target, leaves Y < 0.5 open
                 "direction": -1.0,
             },
         ]
@@ -599,11 +599,12 @@ class HoverEnv(BaseSingleAgentAviary):
                 height=2.0,
                 physicsClientId=self.CLIENT
             )
+            # Sleek, realistic concrete-grey finish for the pillars
             vis_shape = p.createVisualShape(
                 p.GEOM_CYLINDER,
                 radius=self.obstacle_radius,
                 length=2.0,
-                rgbaColor=[1.0, 0.0, 0.0, 1.0],
+                rgbaColor=[0.72, 0.72, 0.70, 1.0],  # concrete grey
                 physicsClientId=self.CLIENT
             )
             body_id = p.createMultiBody(
