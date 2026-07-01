@@ -48,8 +48,8 @@ class HoverEnv(BaseSingleAgentAviary):
         self.LOG_EVERY_STEPS = int(log_every_steps)
 
         self.VELOCITY_LOOKAHEAD_SEC = 0.25
-        self.GOAL_RADIUS = 0.30
-        self.EPISODE_LEN_SEC = 12
+        self.GOAL_RADIUS = 0.35
+        self.EPISODE_LEN_SEC = 15.0
 
         self.last_wind = np.zeros(3, dtype=np.float32)
         self.last_desired_velocity = np.zeros(3, dtype=np.float32)
@@ -96,7 +96,7 @@ class HoverEnv(BaseSingleAgentAviary):
         # FYP-II Phase 3: Initialize continuous turbulence filters
         self._init_dryden_filters()
 
-        self.EPISODE_LEN_SEC = 12
+        self.EPISODE_LEN_SEC = 15
 
     def reset(self):
         # FYP-II Phase 5: Clear stale obstacle IDs before super().reset()
@@ -134,7 +134,8 @@ class HoverEnv(BaseSingleAgentAviary):
         return obs
 
     def _actionSpace(self):
-        return spaces.Box(low=-np.ones(3), high=np.ones(3), dtype=np.float32)
+        # Limit PPO residual actions to +/-0.2 to prevent overriding baseline safety logic
+        return spaces.Box(low=-0.2 * np.ones(3, dtype=np.float32), high=0.2 * np.ones(3, dtype=np.float32), dtype=np.float32)
 
     def _observationSpace(self):
         # Base observation space is 19D (adds prev action to 16D base)
@@ -186,16 +187,16 @@ class HoverEnv(BaseSingleAgentAviary):
         target_error = self.TARGET_POS - state[0:3]
         
         # Calculate attractive force (target pull) — strong enough to brake after avoidance
-        F_a = 0.85 * target_error
+        F_a = 1.0 * target_error
         
         # Calculate repulsive and vortex forces (obstacle push and swirl)
         F_r = np.zeros(3, dtype=np.float32)
         F_v = np.zeros(3, dtype=np.float32)
         
         if self.OBSTACLES and hasattr(self, "obstacle_positions"):
-            d_inf = 0.7  # distance of influence — start steering 70cm from obstacle center
-            k_r = 0.4    # repulsive force scaling
-            k_v = 0.6    # vortex force scaling (tangential swirl)
+            d_inf = 0.9  # distance of influence — balanced for dynamic obstacle avoidance
+            k_r = 0.5    # repulsive force scaling
+            k_v = 0.8    # vortex force scaling (tangential swirl)
             
             for obs_pos in self.obstacle_positions:
                 to_drone = state[0:2] - obs_pos[0:2]
@@ -206,8 +207,12 @@ class HoverEnv(BaseSingleAgentAviary):
                     dist = max(dist, self.obstacle_radius + 0.02)
                     dir_away = to_drone / dist
                     
-                    # Repulsive force: F_r = k_r * (1/d - 1/d_inf) * (1/d^2)
-                    fr_mag = k_r * (1.0 / dist - 1.0 / d_inf) * (1.0 / (dist ** 2))
+                    # GNRON mitigation: scale repulsive force down as we approach target
+                    dist_to_target = np.linalg.norm(target_error)
+                    target_scaling = min(1.0, dist_to_target)
+                    
+                    # Repulsive force: F_r = k_r * (1/d - 1/d_inf) * (1/d^2) * target_scaling
+                    fr_mag = k_r * (1.0 / dist - 1.0 / d_inf) * (1.0 / (dist ** 2)) * target_scaling
                     fr_2d = fr_mag * dir_away
                     F_r[0] += fr_2d[0]
                     F_r[1] += fr_2d[1]
@@ -230,6 +235,8 @@ class HoverEnv(BaseSingleAgentAviary):
 
         # Total action = baseline action + PPO residual correction action
         total_action = np.clip(base_action + action, -1.0, 1.0)
+        if self.step_counter % 120 == 0:
+            print(f"[DEBUG] step {self.step_counter:04d} | base_act {base_action} | ppo_act {action} | tot_act {total_action}")
 
         desired_velocity = np.array([
             total_action[0] * self.MAX_XY_SPEED,
@@ -258,6 +265,7 @@ class HoverEnv(BaseSingleAgentAviary):
     def _physics(self, rpm, nth_drone):
         super()._physics(rpm, nth_drone)
         self._apply_wind(nth_drone)
+        self._updateObstacles()  # FYP-II Phase 5: Move dynamic obstacles each step
 
     def _apply_wind(self, nth_drone):
         if not self.WIND_ENABLED:
@@ -424,20 +432,26 @@ class HoverEnv(BaseSingleAgentAviary):
 
         if distance < self.GOAL_RADIUS:
             self.episode_success = True
+            print("[DEBUG] DONE: Reached Goal Target")
             return True
         if pos[2] < 0.08:
+            print(f"[DEBUG] DONE: Too Low! altitude={pos[2]:.3f}")
             return True
         if distance > 5.0:
+            print(f"[DEBUG] DONE: Out of bounds! dist={distance:.3f}")
             return True
         if tilt > 1.4:
+            print(f"[DEBUG] DONE: Tilt too high! tilt={tilt:.3f}")
             return True
         # Check collision with obstacles
         if self.OBSTACLES and hasattr(self, "obstacle_ids"):
             for obs_id in self.obstacle_ids:
                 contacts = p.getContactPoints(bodyA=self.DRONE_IDS[0], bodyB=obs_id, physicsClientId=self.CLIENT)
                 if len(contacts) > 0:
+                    print(f"[DEBUG] DONE: Collision with obstacle ID {obs_id}!")
                     return True
         if self.step_counter / self.SIM_FREQ > self.EPISODE_LEN_SEC:
+            print("[DEBUG] DONE: Episode Timeout")
             return True
         return False
 
@@ -544,46 +558,95 @@ class HoverEnv(BaseSingleAgentAviary):
         self.dryden_x_v = np.zeros((Ac_v.shape[0], 1), dtype=np.float32)
 
     def _addObstacles(self):
-        """Add static cylindrical column obstacles in PyBullet.
+        """Add dynamic cylindrical obstacles that patrol back and forth.
         
         Called after every reset() because BaseAviary.reset() calls
         p.resetSimulation() which destroys all previously created bodies.
+        Obstacles move each physics step via _updateObstacles().
         """
         if not self.OBSTACLES:
             return
 
-        self.obstacle_radius = 0.20
-        self.obstacle_positions = [
-            np.array([0.5, 0.3, 1.0], dtype=np.float32)  # half-way pillar directly in path
+        self.obstacle_radius = 0.15
+
+        # Define obstacles: position, velocity direction, patrol bounds [min, max] on moving axis
+        # Obstacle 1: crosses the flight path side-to-side (moves along Y)
+        # Obstacle 2: moves along X, sweeping across the approach corridor
+        self.obstacle_configs = [
+            {
+                "pos": np.array([0.4, 0.1, 1.0], dtype=np.float32),
+                "axis": 1,          # moves along Y (sweeps side-to-side)
+                "speed": 0.20,      # m/s
+                "bounds": [-0.2, 0.6],
+                "direction": 1.0,
+            },
+            {
+                "pos": np.array([0.6, 0.3, 0.7], dtype=np.float32),
+                "axis": 0,          # moves along X (sweeps through corridor)
+                "speed": 0.15,      # m/s
+                "bounds": [0.3, 0.7],  # stays in approach zone, away from target
+                "direction": -1.0,
+            },
         ]
+
+        self.obstacle_positions = [cfg["pos"].copy() for cfg in self.obstacle_configs]
         self.obstacle_ids = []
 
-        # Cylindrical collision and visual shape definitions
-        col_shape = p.createCollisionShape(
-            p.GEOM_CYLINDER,
-            radius=self.obstacle_radius,
-            height=2.0,
-            physicsClientId=self.CLIENT
-        )
-        
-        vis_shape = p.createVisualShape(
-            p.GEOM_CYLINDER,
-            radius=self.obstacle_radius,
-            length=2.0,
-            rgbaColor=[1.0, 0.0, 0.0, 1.0],  # solid opaque red for maximum visibility
-            physicsClientId=self.CLIENT
-        )
-
-        for pos in self.obstacle_positions:
+        for cfg in self.obstacle_configs:
+            col_shape = p.createCollisionShape(
+                p.GEOM_CYLINDER,
+                radius=self.obstacle_radius,
+                height=2.0,
+                physicsClientId=self.CLIENT
+            )
+            vis_shape = p.createVisualShape(
+                p.GEOM_CYLINDER,
+                radius=self.obstacle_radius,
+                length=2.0,
+                rgbaColor=[1.0, 0.0, 0.0, 1.0],
+                physicsClientId=self.CLIENT
+            )
             body_id = p.createMultiBody(
-                baseMass=0.0,  # Mass = 0 makes it static
+                baseMass=0.0,
                 baseCollisionShapeIndex=col_shape,
                 baseVisualShapeIndex=vis_shape,
-                basePosition=pos.tolist(),
+                basePosition=cfg["pos"].tolist(),
                 physicsClientId=self.CLIENT
             )
             self.obstacle_ids.append(body_id)
-            print(f"[INFO] Spawned cylinder obstacle with ID {body_id} at position {pos}")
+            print(f"[INFO] Spawned dynamic obstacle ID {body_id} at {cfg['pos']}, "
+                  f"patrol axis={'Y' if cfg['axis']==1 else 'X'}, speed={cfg['speed']} m/s")
+
+    def _updateObstacles(self):
+        """Move each obstacle along its patrol axis, bouncing at bounds."""
+        if not self.OBSTACLES or not hasattr(self, "obstacle_configs"):
+            return
+
+        dt = self.TIMESTEP  # physics timestep (1/240 s)
+
+        for i, cfg in enumerate(self.obstacle_configs):
+            axis = cfg["axis"]
+            lo, hi = cfg["bounds"]
+
+            # Move along patrol axis
+            cfg["pos"][axis] += cfg["speed"] * cfg["direction"] * dt
+
+            # Bounce off patrol bounds
+            if cfg["pos"][axis] >= hi:
+                cfg["pos"][axis] = hi
+                cfg["direction"] = -1.0
+            elif cfg["pos"][axis] <= lo:
+                cfg["pos"][axis] = lo
+                cfg["direction"] = 1.0
+
+            # Update position in PyBullet
+            self.obstacle_positions[i] = cfg["pos"].copy()
+            p.resetBasePositionAndOrientation(
+                self.obstacle_ids[i],
+                cfg["pos"].tolist(),
+                [0, 0, 0, 1],
+                physicsClientId=self.CLIENT
+            )
 
     def _get_raycast_observations(self):
         """Returns 8 normalized distance measurements around the drone's current yaw."""

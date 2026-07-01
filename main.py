@@ -147,7 +147,7 @@ def run_demo(args):
 def parse_args():
     parser = argparse.ArgumentParser(description="Simple FYP-1 drone navigation demo.")
     parser.add_argument("--episodes", type=int, default=1)
-    parser.add_argument("--max-steps", type=int, default=3000)
+    parser.add_argument("--max-steps", type=int, default=5000)
     parser.add_argument("--target-x", type=float, default=1.0)
     parser.add_argument("--target-y", type=float, default=0.6)
     parser.add_argument("--target-z", type=float, default=1.0)
