@@ -88,7 +88,8 @@ def train(args):
             ent_coef=0.002,
         )
 
-    model.learn(total_timesteps=args.timesteps, reset_num_timesteps=not args.resume)
+    callback = CurriculumCallback()
+    model.learn(total_timesteps=args.timesteps, reset_num_timesteps=not args.resume, callback=callback)
     model.save(model_path)
     env.close()
     print(f"Saved model to {model_path}.zip")
