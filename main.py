@@ -15,6 +15,7 @@ def simple_velocity_policy(obs):
     action[0] = np.clip(0.55 * target_error[0], -0.8, 0.8)
     action[1] = np.clip(0.55 * target_error[1], -0.8, 0.8)
     action[2] = np.clip(0.85 * target_error[2], -0.9, 0.9)
+    action[3] = 0.0 # Lookahead residual
     return action
 
 
