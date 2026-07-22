@@ -499,15 +499,68 @@ class HoverEnv(BaseSingleAgentAviary):
         if not self.GUI or self.step_counter % 12 != 0:
             return
 
-        start = self.pos[0].tolist()
-        end = (np.array(start) + 70.0 * self.last_wind).tolist()
-        self._wind_line_id = p.addUserDebugLine(
-            start,
-            end,
-            lineColorRGB=[0.1, 0.35, 1.0],
-            lineWidth=3,
-            lifeTime=0.12,
-            replaceItemUniqueId=int(self._wind_line_id),
+        # Initialize smoothed wind
+        if not hasattr(self, "smoothed_wind"):
+            self.smoothed_wind = np.zeros(3, dtype=np.float32)
+
+        # Smooth the wind vector using a low-pass filter to make transitions slow and smooth
+        self.smoothed_wind = 0.95 * self.smoothed_wind + 0.05 * self.last_wind
+        wind_mag = np.linalg.norm(self.smoothed_wind)
+        
+        # Color coding: Red for hard wind, Orange for moderate, Blue for light
+        if wind_mag >= 0.015:
+            color = [1.0, 0.15, 0.15]      # Bright Red
+            status = "HARD GUST"
+            width = 4
+        elif wind_mag >= 0.008:
+            color = [1.0, 0.6, 0.0]        # Vivid Orange
+            status = "MODERATE"
+            width = 3
+        else:
+            color = [0.15, 0.55, 1.0]      # Light Blue
+            status = "LIGHT"
+            width = 2
+
+        # 3 fixed wind indicators (socks) spaced along the top of the corridor (Z=1.8)
+        vane_bases = [
+            np.array([0.3, 0.4, 1.8], dtype=np.float32),
+            np.array([1.0, 0.4, 1.8], dtype=np.float32),
+            np.array([1.7, 0.4, 1.8], dtype=np.float32)
+        ]
+
+        if not hasattr(self, "_vane_line_ids"):
+            self._vane_line_ids = [-1, -1, -1]
+
+        # Draw the 3 wind socks showing flow direction
+        for idx, base in enumerate(vane_bases):
+            start = base.tolist()
+            # Direction and scale of the wind sock
+            end = (base + self.smoothed_wind * 80.0).tolist()
+            
+            self._vane_line_ids[idx] = p.addUserDebugLine(
+                start,
+                end,
+                lineColorRGB=color,
+                lineWidth=width,
+                lifeTime=0,
+                replaceItemUniqueId=int(self._vane_line_ids[idx]),
+                physicsClientId=self.CLIENT
+            )
+
+        # Draw a clean, fixed-position dashboard HUD in the sky
+        hud_text = "Wind: {:.4f} N ({})".format(wind_mag, status)
+        hud_pos = [1.0, 0.4, 2.05]
+        
+        if not hasattr(self, "_wind_text_id"):
+            self._wind_text_id = -1
+
+        self._wind_text_id = p.addUserDebugText(
+            hud_text,
+            hud_pos,
+            textColorRGB=color,
+            textSize=1.2,
+            lifeTime=0,
+            replaceItemUniqueId=int(self._wind_text_id),
             physicsClientId=self.CLIENT,
         )
 
