@@ -558,12 +558,7 @@ class HoverEnv(BaseSingleAgentAviary):
         self.dryden_x_v = np.zeros((Ac_v.shape[0], 1), dtype=np.float32)
 
     def _addObstacles(self):
-        """Add dynamic cylindrical obstacles that patrol back and forth.
-        
-        Called after every reset() because BaseAviary.reset() calls
-        p.resetSimulation() which destroys all previously created bodies.
-        Obstacles move each physics step via _updateObstacles().
-        """
+        """Add dynamic obstacles for the active scenario."""
         if not self.OBSTACLES:
             return
 
