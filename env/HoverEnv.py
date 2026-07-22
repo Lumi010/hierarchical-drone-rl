@@ -117,8 +117,8 @@ class HoverEnv(BaseSingleAgentAviary):
         self.last_wind = np.zeros(3, dtype=np.float32)
         self.last_desired_velocity = np.zeros(3, dtype=np.float32)
         # FYP-II Phase 2: Reset temporal action tracking
-        self.last_ppo_action = np.zeros(3, dtype=np.float32)
-        self.action_difference = np.zeros(3, dtype=np.float32)
+        self.last_ppo_action = np.zeros(4, dtype=np.float32)
+        self.action_difference = np.zeros(4, dtype=np.float32)
         self._reset_wind()
         self._draw_target()
 
