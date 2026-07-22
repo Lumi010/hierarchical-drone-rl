@@ -54,6 +54,7 @@ def make_env(args):
         log_every_steps=0,
         randomize_dynamics=args.randomize_dynamics,
         obstacles_enabled=not args.no_obstacles,
+        scenario=args.scenario,
     ))
 
 
