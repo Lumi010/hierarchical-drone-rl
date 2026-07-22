@@ -159,6 +159,7 @@ def parse_args():
     parser.add_argument("--no-gui", action="store_true")
     parser.add_argument("--no-wind", action="store_true")
     parser.add_argument("--no-obstacles", action="store_true", help="Disable obstacle cylinders in environment")
+    parser.add_argument("--scenario", type=str, default="slalom", choices=["slalom", "forest", "racing", "tracking", "mixed"], help="Which procedural scenario to spawn")
     return parser.parse_args()
 
 
