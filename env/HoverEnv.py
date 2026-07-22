@@ -38,6 +38,8 @@ class HoverEnv(BaseSingleAgentAviary):
         log_every_steps=120,
         randomize_dynamics=False,
         obstacles_enabled=True,
+        curriculum_enabled=True,
+        scenario="slalom",
     ):
         self.TARGET_POS = np.array(target_xyz if target_xyz is not None else [2.0, 0.8, 1.0], dtype=np.float32)
         self.SCENARIO = str(scenario)
