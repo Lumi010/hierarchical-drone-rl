@@ -49,7 +49,7 @@ class HoverEnv(BaseSingleAgentAviary):
 
         self.VELOCITY_LOOKAHEAD_SEC = 0.25
         self.GOAL_RADIUS = 0.35
-        self.EPISODE_LEN_SEC = 15.0
+        self.EPISODE_LEN_SEC = 18.0
 
         self.last_wind = np.zeros(3, dtype=np.float32)
         self.last_desired_velocity = np.zeros(3, dtype=np.float32)
