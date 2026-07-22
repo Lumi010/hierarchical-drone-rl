@@ -318,7 +318,6 @@ class HoverEnv(BaseSingleAgentAviary):
             active_rand_scale = 0.5
         else:
             # Stage 3: Full storm, full dynamics randomization (100% bounds)
-            self.current_curriculum_stage = 3
             active_wind_strength = self.WIND_STRENGTH
             active_rand_scale = 1.0
 
