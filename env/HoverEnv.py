@@ -138,9 +138,9 @@ class HoverEnv(BaseSingleAgentAviary):
         return spaces.Box(low=-0.2 * np.ones(3, dtype=np.float32), high=0.2 * np.ones(3, dtype=np.float32), dtype=np.float32)
 
     def _observationSpace(self):
-        # Base observation space is 19D (adds prev action to 16D base)
-        # FYP-II Phase 5: Expanded to 27D when obstacles are enabled (adds 8 normalized raycast distances)
-        dim = 27 if getattr(self, "OBSTACLES", False) else 19
+        # Base observation space is 20D (adds prev 4D action to 16D base)
+        # FYP-II Phase 5: Expanded to 28D when obstacles are enabled (adds 8 normalized raycast distances)
+        dim = 28 if getattr(self, "OBSTACLES", False) else 20
         return spaces.Box(low=-np.ones(dim), high=np.ones(dim), dtype=np.float32)
 
     def _computeObs(self):
