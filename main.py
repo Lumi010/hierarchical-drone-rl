@@ -11,7 +11,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 def simple_velocity_policy(obs):
     """Fallback demo policy used when no PPO model is selected."""
     target_error = obs[0:3] * 3.0
-    action = np.zeros(3, dtype=np.float32)
+    action = np.zeros(4, dtype=np.float32)
     action[0] = np.clip(0.55 * target_error[0], -0.8, 0.8)
     action[1] = np.clip(0.55 * target_error[1], -0.8, 0.8)
     action[2] = np.clip(0.85 * target_error[2], -0.9, 0.9)
