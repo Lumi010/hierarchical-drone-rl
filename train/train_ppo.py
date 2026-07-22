@@ -86,6 +86,7 @@ def train(args):
             gae_lambda=0.95,
             clip_range=0.2,
             ent_coef=0.002,
+            tensorboard_log="logs/ppo_tensorboard/"
         )
 
     callback = CurriculumCallback()
