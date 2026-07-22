@@ -107,6 +107,7 @@ def parse_args():
     parser.add_argument("--target-z", type=float, default=1.0)
     parser.add_argument("--randomize-dynamics", action="store_true", help="Enable Domain Randomization (mass, inertia, motor kf/km)")
     parser.add_argument("--no-obstacles", action="store_true", help="Disable obstacle cylinders in environment")
+    parser.add_argument("--scenario", type=str, default="mixed", choices=["slalom", "forest", "racing", "tracking", "mixed"], help="Which procedural scenario to train on")
     return parser.parse_args()
 
 
