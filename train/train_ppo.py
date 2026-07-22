@@ -64,6 +64,37 @@ def train(args):
     except ImportError as exc:
         raise SystemExit("Install stable-baselines3 to train PPO.") from exc
 
+    class CurriculumCallback(BaseCallback):
+        def __init__(self, verbose=0):
+            super().__init__(verbose)
+            self.success_history = deque(maxlen=50)
+            
+        def _on_step(self) -> bool:
+            # Check if episode just ended
+            if "dones" in self.locals and self.locals["dones"][0]:
+                info = self.locals["infos"][0]
+                if "success" in info:
+                    self.success_history.append(float(info["success"]))
+                    
+                    # Log base metrics every time we have a full history
+                    if len(self.success_history) == 50:
+                        win_rate = sum(self.success_history) / 50.0
+                        
+                        # Access the underlying HoverEnv
+                        base_env = self.training_env.envs[0].env.env
+                        
+                        # Log to TensorBoard!
+                        self.logger.record("curriculum/win_rate", win_rate)
+                        self.logger.record("curriculum/stage", getattr(base_env, "current_curriculum_stage", 1))
+                        
+                        # If win rate is > 85%, promote the curriculum!
+                        if win_rate >= 0.85:
+                            promoted = base_env.promote_curriculum_stage()
+                            if promoted:
+                                # Reset history so we don't spam promotions
+                                self.success_history.clear()
+            return True
+
     os.makedirs("models", exist_ok=True)
     os.makedirs("logs", exist_ok=True)
 
