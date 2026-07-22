@@ -177,8 +177,17 @@ class HoverEnv(BaseSingleAgentAviary):
         # FYP-II Phase 4: Track total training steps
         self.total_env_steps += 1
 
-        # FYP-II Phase 2: Compute action difference for smoothness penalty, then update
-        self.action_difference = action - self.last_ppo_action
+        # FYP-II Phase 2 & 6: Compute 4D action difference for smoothness penalty, then update
+        raw_action_diff = action - self.last_ppo_action
+        
+        # EXTENSION 7: Lipschitz-Constrained Action Smoothing
+        # Enforce strict mathematical bounds on how fast the action can change per step.
+        # Max change per step: 0.15 (this puts a physical speed limit on the control signal).
+        max_action_delta = 0.15
+        clipped_diff = np.clip(raw_action_diff, -max_action_delta, max_action_delta)
+        action = self.last_ppo_action + clipped_diff
+        
+        self.action_difference = clipped_diff
         self.last_ppo_action = action.copy()
 
         # Re-extract the Lipschitz-constrained components
