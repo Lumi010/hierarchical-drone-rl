@@ -287,10 +287,18 @@ class HoverEnv(BaseSingleAgentAviary):
         gust_u = float(np.dot(self.Cd_u, self.dryden_x_u) + self.Dd_u * w_u)
         gust_v = float(np.dot(self.Cd_v, self.dryden_x_v) + self.Dd_v * w_v)
 
-        # Normalize outputs and scale to convert to wind force in Newtons
-        force_x = self.current_wind_strength * (gust_u / self.sigma_u)
-        force_y = self.current_wind_strength * (gust_v / self.sigma_v)
-
+        # Combine steady wind (mean) + Dryden turbulence (gusts) to prevent zero start
+        # Steady wind blows along the X and Y axes
+        steady_x = self.current_wind_strength * 0.7
+        steady_y = self.current_wind_strength * 0.3
+        
+        # Turbulence gusts fluctuate on top of the steady wind
+        turb_x = self.current_wind_strength * 0.5 * (gust_u / self.sigma_u)
+        turb_y = self.current_wind_strength * 0.5 * (gust_v / self.sigma_v)
+        
+        force_x = steady_x + turb_x
+        force_y = steady_y + turb_y
+ 
         wind = np.array([force_x, force_y, 0.0], dtype=np.float32)
         self.last_wind = wind
         p.applyExternalForce(
