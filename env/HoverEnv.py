@@ -39,7 +39,8 @@ class HoverEnv(BaseSingleAgentAviary):
         randomize_dynamics=False,
         obstacles_enabled=True,
     ):
-        self.TARGET_POS = np.array(target_xyz if target_xyz is not None else [1.0, 0.6, 1.0], dtype=np.float32)
+        self.TARGET_POS = np.array(target_xyz if target_xyz is not None else [2.0, 0.8, 1.0], dtype=np.float32)
+        self.SCENARIO = str(scenario)
         self.WIND_ENABLED = bool(wind_enabled)
         self.WIND_STRENGTH = float(wind_strength)
         self.RANDOM_WIND = bool(random_wind)
