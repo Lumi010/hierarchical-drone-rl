@@ -61,6 +61,8 @@ def train(args):
     try:
         from stable_baselines3 import PPO
         from stable_baselines3.common.monitor import Monitor
+        from stable_baselines3.common.callbacks import BaseCallback
+        from collections import deque
     except ImportError as exc:
         raise SystemExit("Install stable-baselines3 to train PPO.") from exc
 
