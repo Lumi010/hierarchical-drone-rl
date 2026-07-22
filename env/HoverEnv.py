@@ -466,6 +466,7 @@ class HoverEnv(BaseSingleAgentAviary):
             "angular_velocity": state[13:16].copy(),
             "wind": self.last_wind.copy(),
             "desired_velocity": self.last_desired_velocity.copy(),
+            "dynamic_lookahead": getattr(self, "current_dynamic_lookahead", 0.25),
             "episode_reward": float(self.episode_reward),
             "episode_min_distance": float(self.episode_min_distance),
             "episode_max_tilt": float(self.episode_max_tilt),
