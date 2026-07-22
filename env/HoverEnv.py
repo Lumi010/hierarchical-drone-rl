@@ -308,7 +308,6 @@ class HoverEnv(BaseSingleAgentAviary):
         # Define 3 stages based on total environment steps
         if self.total_env_steps < 30000:
             # Stage 1: Calm air, no dynamics randomization
-            self.current_curriculum_stage = 1
             active_wind_strength = 0.0
             active_rand_scale = 0.0
         elif self.current_curriculum_stage == 2:
