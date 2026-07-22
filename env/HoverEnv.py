@@ -96,7 +96,7 @@ class HoverEnv(BaseSingleAgentAviary):
         # FYP-II Phase 3: Initialize continuous turbulence filters
         self._init_dryden_filters()
 
-        self.EPISODE_LEN_SEC = 15
+        self.EPISODE_LEN_SEC = 18.0
 
     def reset(self):
         # Pick the active scenario for this episode
