@@ -245,7 +245,7 @@ class HoverEnv(BaseSingleAgentAviary):
         ], dtype=np.float32)
 
         state = self._getDroneStateVector(0)
-        target_pos = state[0:3] + desired_velocity * self.VELOCITY_LOOKAHEAD_SEC
+        target_pos = state[0:3] + desired_velocity * dynamic_lookahead
         target_pos[2] = np.clip(target_pos[2], 0.25, 2.2)
         self.last_desired_velocity = desired_velocity
 
