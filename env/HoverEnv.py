@@ -593,20 +593,20 @@ class HoverEnv(BaseSingleAgentAviary):
         self.obstacle_ids = []
 
         for cfg in self.obstacle_configs:
-            col_shape = p.createCollisionShape(
-                p.GEOM_CYLINDER,
-                radius=self.obstacle_radius,
-                height=2.0,
-                physicsClientId=self.CLIENT
-            )
-            # Sleek, realistic concrete-grey finish for the pillars
-            vis_shape = p.createVisualShape(
-                p.GEOM_CYLINDER,
-                radius=self.obstacle_radius,
-                length=2.0,
-                rgbaColor=[0.72, 0.72, 0.70, 1.0],  # concrete grey
-                physicsClientId=self.CLIENT
-            )
+            shape = cfg["shape"]
+            color = cfg["color"]
+            if shape == "box":
+                extents = cfg.get("extents", [self.obstacle_radius, self.obstacle_radius, 1.0])
+                col_shape = p.createCollisionShape(p.GEOM_BOX, halfExtents=extents, physicsClientId=self.CLIENT)
+                vis_shape = p.createVisualShape(p.GEOM_BOX, halfExtents=extents, rgbaColor=color, physicsClientId=self.CLIENT)
+            elif shape == "cylinder":
+                r = cfg.get("radius", self.obstacle_radius)
+                col_shape = p.createCollisionShape(p.GEOM_CYLINDER, radius=r, height=2.0, physicsClientId=self.CLIENT)
+                vis_shape = p.createVisualShape(p.GEOM_CYLINDER, radius=r, length=2.0, rgbaColor=color, physicsClientId=self.CLIENT)
+            else:  # sphere
+                col_shape = p.createCollisionShape(p.GEOM_SPHERE, radius=self.obstacle_radius, physicsClientId=self.CLIENT)
+                vis_shape = p.createVisualShape(p.GEOM_SPHERE, radius=self.obstacle_radius, rgbaColor=color, physicsClientId=self.CLIENT)
+
             body_id = p.createMultiBody(
                 baseMass=0.0,
                 baseCollisionShapeIndex=col_shape,
