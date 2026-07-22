@@ -99,8 +99,17 @@ class HoverEnv(BaseSingleAgentAviary):
         self.EPISODE_LEN_SEC = 15
 
     def reset(self):
-        # FYP-II Phase 5: Clear stale obstacle IDs before super().reset()
-        # because BaseAviary.reset() calls p.resetSimulation() (destroys all bodies)
+        # Pick the active scenario for this episode
+        if getattr(self, "SCENARIO", "slalom") == "mixed":
+            self.active_scenario = np.random.choice(["slalom", "forest", "racing", "tracking"])
+        else:
+            self.active_scenario = getattr(self, "SCENARIO", "slalom")
+
+        # Dynamic target start pos
+        self.TARGET_POS = np.array([2.0, 0.8, 1.0], dtype=np.float32)
+
+        # FYP-II Phase 5: Clear stale obstacle and debug line/text IDs before super().reset()
+        # because BaseAviary.reset() calls p.resetSimulation() (destroys all bodies and debug lines)
         # then _housekeeping() -> _addObstacles() re-creates them.
         self.obstacle_ids = []
         self._wind_line_id = -1
