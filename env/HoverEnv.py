@@ -43,6 +43,7 @@ class HoverEnv(BaseSingleAgentAviary):
         self.WIND_ENABLED = bool(wind_enabled)
         self.WIND_STRENGTH = float(wind_strength)
         self.RANDOM_WIND = bool(random_wind)
+        self.CURRICULUM_ENABLED = bool(curriculum_enabled)
         self.MAX_XY_SPEED = float(max_xy_speed)
         self.MAX_Z_SPEED = float(max_z_speed)
         self.LOG_EVERY_STEPS = int(log_every_steps)
