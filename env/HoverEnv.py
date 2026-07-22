@@ -187,7 +187,14 @@ class HoverEnv(BaseSingleAgentAviary):
         target_error = self.TARGET_POS - state[0:3]
         
         # Calculate attractive force (target pull) — strong enough to brake after avoidance
-        F_a = 1.0 * target_error
+        F_a = 2.0 * target_error
+        
+        # Scale down forward attractive force if an obstacle is directly in front (braking mechanism)
+        if self.OBSTACLES:
+            ray_obs = self._get_raycast_observations()
+            # ray_obs[0] is the front sensor. If it detects an obstacle within 1.2m (fraction < 0.8)
+            if ray_obs[0] < 0.8:
+                F_a[0] *= max(0.15, float(ray_obs[0]))
         
         # Calculate repulsive and vortex forces (obstacle push and swirl)
         F_r = np.zeros(3, dtype=np.float32)
