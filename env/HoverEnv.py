@@ -615,8 +615,6 @@ class HoverEnv(BaseSingleAgentAviary):
                 physicsClientId=self.CLIENT
             )
             self.obstacle_ids.append(body_id)
-            print(f"[INFO] Spawned dynamic obstacle ID {body_id} at {cfg['pos']}, "
-                  f"patrol axis={'Y' if cfg['axis']==1 else 'X'}, speed={cfg['speed']} m/s")
 
     def _updateObstacles(self):
         """Move each obstacle along its patrol axis, bouncing at bounds."""
