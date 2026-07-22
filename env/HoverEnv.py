@@ -311,7 +311,7 @@ class HoverEnv(BaseSingleAgentAviary):
             self.current_curriculum_stage = 1
             active_wind_strength = 0.0
             active_rand_scale = 0.0
-        elif self.total_env_steps < 80000:
+        elif self.current_curriculum_stage == 2:
             # Stage 2: Light wind, moderate dynamics randomization (50% bounds)
             active_wind_strength = self.WIND_STRENGTH * 0.5
             active_rand_scale = 0.5
