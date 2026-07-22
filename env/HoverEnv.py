@@ -568,26 +568,50 @@ class HoverEnv(BaseSingleAgentAviary):
             return
 
         self.obstacle_radius = 0.12
+        self.obstacle_configs = []
+        scenario = getattr(self, "active_scenario", "slalom")
 
-        # Define obstacles: position, velocity direction, patrol bounds [min, max] on moving axis
-        # Obstacle 1: crosses the flight path side-to-side (moves along Y)
-        # Obstacle 2: moves along X, sweeping across the approach corridor
-        self.obstacle_configs = [
-            {
-                "pos": np.array([0.35, -0.1, 1.0], dtype=np.float32),
-                "axis": 1,          # moves along Y
-                "speed": 0.15,      # m/s — slightly slower for smoother navigation
-                "bounds": [-0.4, 0.1],  # guards the bottom corridor, leaves Y > 0.1 open
-                "direction": 1.0,
-            },
-            {
-                "pos": np.array([0.70, 0.7, 0.7], dtype=np.float32),
-                "axis": 1,          # moves along Y
-                "speed": 0.15,      # m/s
-                "bounds": [0.5, 0.9],  # guards the top corridor near the target, leaves Y < 0.5 open
-                "direction": -1.0,
-            },
-        ]
+        if scenario in ["slalom", "tracking"]:
+            self.obstacle_configs = [
+                {"pos": np.array([0.5, -0.2, 1.0], dtype=np.float32), "axis": 1, "speed": 0.15, "bounds": [-0.4, 0.0], "direction": 1.0, "shape": "box", "color": [0.72, 0.72, 0.70, 1.0]},
+                {"pos": np.array([1.0, 0.3, 1.0], dtype=np.float32), "axis": 1, "speed": 0.15, "bounds": [0.1, 0.5], "direction": -1.0, "shape": "cylinder", "color": [0.28, 0.30, 0.35, 1.0]},
+                {"pos": np.array([1.5, 0.8, 1.0], dtype=np.float32), "axis": 1, "speed": 0.15, "bounds": [0.6, 1.0], "direction": 1.0, "shape": "sphere", "color": [0.60, 0.70, 0.80, 1.0]}
+            ]
+        elif scenario == "forest":
+            # Procedural Forest: 15 tree trunks (some static, some moving)
+            for i in range(15):
+                x = np.random.uniform(0.3, 1.8)
+                y = np.random.uniform(-0.2, 1.8)
+                is_static = (np.random.rand() > 0.4)
+                speed = 0.0 if is_static else np.random.uniform(0.05, 0.25)
+                rad = np.random.uniform(0.05, 0.15)
+                self.obstacle_configs.append({
+                    "pos": np.array([x, y, 1.0], dtype=np.float32),
+                    "axis": 1, "speed": speed, "bounds": [y - 0.3, y + 0.3],
+                    "direction": 1.0 if np.random.rand() > 0.5 else -1.0,
+                    "shape": "cylinder", "color": [0.35, 0.25, 0.15, 1.0], "radius": rad
+                })
+        elif scenario == "racing":
+            # Drone Racing Track: 3 Procedural Gates
+            for i, x in enumerate([0.5, 1.0, 1.5]):
+                y = np.random.uniform(0.2, 0.8)
+                z = np.random.uniform(0.8, 1.2)
+                g_width = 0.3
+                g_height = 0.3
+                thickness = 0.04
+                color = [0.8, 0.1, 0.1, 1.0] # Red racing gates
+                # Add 4 beams for the gate
+                for extents, offset in [
+                    ([thickness, thickness, g_height], [0, -g_width, 0]), # Left
+                    ([thickness, thickness, g_height], [0, g_width, 0]),  # Right
+                    ([thickness, g_width, thickness], [0, 0, g_height]),  # Top
+                    ([thickness, g_width, thickness], [0, 0, -g_height])  # Bottom
+                ]:
+                    self.obstacle_configs.append({
+                        "pos": np.array([x + offset[0], y + offset[1], z + offset[2]], dtype=np.float32),
+                        "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, # Static gates
+                        "shape": "box", "extents": extents, "color": color
+                    })
 
         self.obstacle_positions = [cfg["pos"].copy() for cfg in self.obstacle_configs]
         self.obstacle_ids = []
