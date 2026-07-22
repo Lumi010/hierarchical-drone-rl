@@ -103,3 +103,38 @@ def test(args):
         raise FileNotFoundError(f"Model not found at {model_path}. Train it first!")
 
     print(f"Loading model from {model_path}...\n")
+    model = PPO.load(model_path)
+    
+    conditions = [
+        {"name": "No Wind", "stage": 1, "disable_wind": True, "is_mixed": False},
+        {"name": "Low Wind", "stage": 1, "disable_wind": False, "is_mixed": False},
+        {"name": "Medium Wind", "stage": 2, "disable_wind": False, "is_mixed": False},
+        {"name": "High Wind", "stage": 3, "disable_wind": False, "is_mixed": False},
+        {"name": "Mixed Wind", "stage": 3, "disable_wind": False, "is_mixed": True},
+    ]
+    
+    if args.mode == "benchmark":
+        print("=== STARTING FULL BENCHMARK SUITE ===")
+        results = []
+        for c in conditions:
+            print(f"\n--- Testing Condition: {c['name']} ---")
+            win_rate, avg_dist = run_test_loop(
+                env, model, c['name'], c['stage'], args.episodes, 
+                disable_wind=c['disable_wind'], is_mixed=c['is_mixed']
+            )
+            results.append({
+                "Condition": c['name'], 
+                "Episodes": args.episodes, 
+                "Win Rate (%)": win_rate, 
+                "Avg Min Dist (m)": avg_dist
+            })
+        
+        # Save results to CSV
+        os.makedirs("results", exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_file = os.path.join("results", f"benchmark_{timestamp}.csv")
+        
+        with open(csv_file, mode='w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=["Condition", "Episodes", "Win Rate (%)", "Avg Min Dist (m)"])
+            writer.writeheader()
+            for r in results:
