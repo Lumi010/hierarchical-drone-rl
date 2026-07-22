@@ -46,6 +46,8 @@ def run_demo(args):
         target_xyz=np.array([args.target_x, args.target_y, args.target_z], dtype=np.float32),
         log_every_steps=0,
         obstacles_enabled=not args.no_obstacles,
+        curriculum_enabled=False,
+        scenario=args.scenario,
     )
 
     os.makedirs("logs", exist_ok=True)
