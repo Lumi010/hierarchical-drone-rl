@@ -234,7 +234,25 @@ class HoverEnv(BaseSingleAgentAviary):
         base_action[2] = np.clip(0.85 * target_error[2], -0.9, 0.9)
 
         # Total action = baseline action + PPO residual correction action
-        total_action = np.clip(base_action + action, -1.0, 1.0)
+        total_action = np.clip(base_action + vel_action, -1.0, 1.0)
+        
+        # EXTENSION 6: Lightweight Control Barrier Function (CBF) Safety Shield
+        # If the raycast sensor detects an obstacle within critical suicide range (<0.3m, which is ray_obs < 0.2)
+        # or altitude is too low, we mathematically overwrite the velocity command to prevent a crash.
+        if self.OBSTACLES:
+            ray_obs = self._get_raycast_observations()
+            if ray_obs[0] < 0.2 and total_action[0] > 0:
+                # Guaranteed crash if we keep moving forward. CBF intercepts.
+                total_action[0] = -0.1  # Force an emergency brake/reverse
+            # Check altitude safety (Floor CBF)
+            if state[2] < 0.3 and total_action[2] < 0:
+                total_action[2] = 0.0 # Force hover, stop descending
+
+        # FYP-II Phase 6: Adaptive Kinematic Bridge Lookahead
+        # Base lookahead is 0.25s, AI can adapt it dynamically between 0.10s and 0.40s
+        dynamic_lookahead = np.clip(0.25 + lookahead_residual, 0.10, 0.40)
+        self.current_dynamic_lookahead = float(dynamic_lookahead)
+
         if self.step_counter % 120 == 0:
             print(f"[DEBUG] step {self.step_counter:04d} | base_act {base_action} | ppo_act {vel_action} | lookahead {dynamic_lookahead:.3f}s")
 
