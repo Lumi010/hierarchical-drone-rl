@@ -236,7 +236,7 @@ class HoverEnv(BaseSingleAgentAviary):
         # Total action = baseline action + PPO residual correction action
         total_action = np.clip(base_action + action, -1.0, 1.0)
         if self.step_counter % 120 == 0:
-            print(f"[DEBUG] step {self.step_counter:04d} | base_act {base_action} | ppo_act {action} | tot_act {total_action}")
+            print(f"[DEBUG] step {self.step_counter:04d} | base_act {base_action} | ppo_act {vel_action} | lookahead {dynamic_lookahead:.3f}s")
 
         desired_velocity = np.array([
             total_action[0] * self.MAX_XY_SPEED,
