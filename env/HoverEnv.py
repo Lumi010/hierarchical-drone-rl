@@ -557,6 +557,14 @@ class HoverEnv(BaseSingleAgentAviary):
         self.dryden_x_u = np.zeros((Ac_u.shape[0], 1), dtype=np.float32)
         self.dryden_x_v = np.zeros((Ac_v.shape[0], 1), dtype=np.float32)
 
+    def promote_curriculum_stage(self):
+        """Called by external SB3 callback to advance difficulty."""
+        if getattr(self, "current_curriculum_stage", 1) < 3:
+            self.current_curriculum_stage += 1
+            print(f"[ENVIRONMENT] *** Curriculum Promoted to Stage {self.current_curriculum_stage}! ***")
+            return True
+        return False
+
     def _addObstacles(self):
         """Add dynamic obstacles for the active scenario."""
         if not self.OBSTACLES:
