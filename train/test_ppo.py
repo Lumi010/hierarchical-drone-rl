@@ -68,3 +68,38 @@ def run_test_loop(env, model, condition_name, stage, episodes, disable_wind=Fals
         total_steps += ep_steps
         status = "SUCCESS" if ep_success else "FAILED"
         
+        # Display the specific stage if mixed, otherwise the general condition name
+        display_name = f"Mixed (Stage {stage})" if is_mixed else condition_name
+        print(f"Episode {ep+1:02d} | Condition: {display_name} | Status: {status} | Min Dist: {ep_min_dist:.3f}m")
+
+    win_rate = (successes / episodes) * 100
+    avg_min_dist = sum(min_distances) / len(min_distances)
+    return win_rate, avg_min_dist
+
+def test(args):
+    try:
+        from stable_baselines3 import PPO
+    except ImportError as exc:
+        raise SystemExit("Install stable-baselines3 to run PPO.") from exc
+
+    target = np.array([args.target_x, args.target_y, args.target_z], dtype=np.float32)
+    
+    # We initialize the env normally. The run_test_loop handles overriding wind settings.
+    env = GymnasiumWrapper(HoverEnv(
+        gui=args.gui,
+        wind_enabled=True,
+        wind_strength=args.wind,
+        random_wind=True,
+        target_xyz=target,
+        log_every_steps=0,
+        randomize_dynamics=args.randomize_dynamics,
+        obstacles_enabled=not args.no_obstacles,
+        curriculum_enabled=True,
+        scenario=args.scenario,
+    ))
+
+    model_path = os.path.join("models", "drone_model.zip")
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model not found at {model_path}. Train it first!")
+
+    print(f"Loading model from {model_path}...\n")
