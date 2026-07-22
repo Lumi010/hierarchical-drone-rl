@@ -263,6 +263,23 @@ class HoverEnv(BaseSingleAgentAviary):
         return rpm
 
     def _physics(self, rpm, nth_drone):
+        # EXTENSION 5: Aerodynamic Ground Effect / Downwash Physics
+        # Based on ProxFly (Zhang et al. 2024), apply an upward force when altitude Z < 0.5m.
+        # F_ge = k_ge / (Z^2). This simulates the thrust bouncing off the floor.
+        pos = self.pos[nth_drone]
+        altitude = pos[2]
+        if 0.05 < altitude < 0.5:
+            k_ge = 0.005
+            ge_force = min(k_ge / (altitude ** 2), 0.4) # Clamp max force to 0.4N to prevent physics explosions
+            p.applyExternalForce(
+                self.DRONE_IDS[nth_drone],
+                -1,
+                forceObj=[0.0, 0.0, ge_force],
+                posObj=pos.tolist(),
+                flags=p.WORLD_FRAME,
+                physicsClientId=self.CLIENT,
+            )
+
         super()._physics(rpm, nth_drone)
         self._apply_wind(nth_drone)
         self._updateObstacles()  # FYP-II Phase 5: Move dynamic obstacles each step
