@@ -138,3 +138,41 @@ def test(args):
             writer = csv.DictWriter(f, fieldnames=["Condition", "Episodes", "Win Rate (%)", "Avg Min Dist (m)"])
             writer.writeheader()
             for r in results:
+                writer.writerow(r)
+                
+        print("\n" + "="*50)
+        print("FINAL BENCHMARK RESULTS")
+        print("="*50)
+        for r in results:
+            print(f"{r['Condition']:<15} | Win Rate {r['Win Rate (%)']:>5.1f}% | Avg Dist {r['Avg Min Dist (m)']:.3f}m")
+        print("="*50)
+        print(f"Results saved permanently to {csv_file}")
+        
+    else:
+        # Single mode test
+        mode_map = {
+            "none": conditions[0],
+            "low": conditions[1],
+            "medium": conditions[2],
+            "high": conditions[3],
+            "mixed": conditions[4],
+        }
+        
+        c = mode_map[args.mode]
+        print(f"=== TESTING CONDITION: {c['name']} ===")
+        win_rate, avg_dist = run_test_loop(
+            env, model, c['name'], c['stage'], args.episodes, 
+            disable_wind=c['disable_wind'], is_mixed=c['is_mixed']
+        )
+        print("\n" + "="*50)
+        print(f"RESULTS FOR {c['name'].upper()}")
+        print("="*50)
+        print(f"Total Episodes : {args.episodes}")
+        print(f"Success Rate   : {win_rate:.1f}%")
+        print(f"Avg Min Dist   : {avg_dist:.3f} m")
+        print("="*50)
+    
+    env.close()
+
+if __name__ == "__main__":
+    test(parse_args())
