@@ -103,6 +103,9 @@ class HoverEnv(BaseSingleAgentAviary):
         # because BaseAviary.reset() calls p.resetSimulation() (destroys all bodies)
         # then _housekeeping() -> _addObstacles() re-creates them.
         self.obstacle_ids = []
+        self._wind_line_id = -1
+        self._wind_text_id = -1
+        self._vane_line_ids = [-1, -1, -1]
 
         obs = super().reset()  # resetSimulation → _housekeeping → _addObstacles
         if hasattr(self, "ctrl"):
