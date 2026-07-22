@@ -134,8 +134,11 @@ class HoverEnv(BaseSingleAgentAviary):
         return obs
 
     def _actionSpace(self):
-        # Limit PPO residual actions to +/-0.2 to prevent overriding baseline safety logic
-        return spaces.Box(low=-0.2 * np.ones(3, dtype=np.float32), high=0.2 * np.ones(3, dtype=np.float32), dtype=np.float32)
+        # FYP-II Phase 6 (Adaptive Kinematic Bridge):
+        # 4D Action Space: 3D Velocity Residuals (+/-0.2), 1D Lookahead Residual (+/-0.15)
+        low = np.array([-0.2, -0.2, -0.2, -0.15], dtype=np.float32)
+        high = np.array([0.2, 0.2, 0.2, 0.15], dtype=np.float32)
+        return spaces.Box(low=low, high=high, dtype=np.float32)
 
     def _observationSpace(self):
         # Base observation space is 20D (adds prev 4D action to 16D base)
