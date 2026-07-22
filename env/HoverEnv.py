@@ -63,8 +63,9 @@ class HoverEnv(BaseSingleAgentAviary):
         self.episode_success = False
         self._wind_line_id = -1
         # FYP-II Phase 2: Temporal awareness — track the previous PPO action
-        self.last_ppo_action = np.zeros(3, dtype=np.float32)
-        self.action_difference = np.zeros(3, dtype=np.float32)
+        # FYP-II Phase 6: Expanded to 4D to include Adaptive Kinematic Bridge Lookahead
+        self.last_ppo_action = np.zeros(4, dtype=np.float32)
+        self.action_difference = np.zeros(4, dtype=np.float32)
 
         # FYP-II Phase 4: Curriculum Learning & Domain Randomization
         self.total_env_steps = 0
