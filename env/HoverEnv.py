@@ -233,6 +233,12 @@ class HoverEnv(BaseSingleAgentAviary):
         base_action[1] = np.clip(F_a[1] + F_r[1] + F_v[1], -0.8, 0.8)
         base_action[2] = np.clip(0.85 * target_error[2], -0.9, 0.9)
 
+        # Smoothly attenuate PPO residual correction when close to target to prevent steady-state offset/overshoot
+        dist_to_goal = np.linalg.norm(target_error)
+        if dist_to_goal < 0.8:
+            residual_scale = max(0.0, (dist_to_goal - 0.35) / (0.8 - 0.35))
+            vel_action = vel_action * residual_scale
+
         # Total action = baseline action + PPO residual correction action
         total_action = np.clip(base_action + vel_action, -1.0, 1.0)
         
