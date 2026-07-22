@@ -471,6 +471,7 @@ class HoverEnv(BaseSingleAgentAviary):
             "episode_max_tilt": float(self.episode_max_tilt),
             "success": bool(self.episode_success),
             "steps": int(self.episode_steps),
+            "rpm": self.last_clipped_action[0].copy() if hasattr(self, "last_clipped_action") and self.last_clipped_action is not None else np.zeros(4, dtype=np.float32),
         }
 
     def _distance_to_target(self):
