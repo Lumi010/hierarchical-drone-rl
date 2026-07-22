@@ -33,3 +33,38 @@ def run_test_loop(env, model, condition_name, stage, episodes, disable_wind=Fals
     min_distances = []
 
     # Apply specific overrides for this test loop
+    if disable_wind:
+        env.env.wind_enabled = False
+        env.env.current_curriculum_stage = 1
+    else:
+        env.env.wind_enabled = True
+
+    for ep in range(episodes):
+        if is_mixed:
+            stage = random.choice([1, 2, 3])
+            
+        if not disable_wind:
+            env.env.current_curriculum_stage = stage
+            
+        obs, _ = env.reset()
+        done = False
+        ep_steps = 0
+        ep_min_dist = float('inf')
+        ep_success = False
+
+        while not done:
+            action, _states = model.predict(obs, deterministic=True)
+            obs, reward, done, truncated, info = env.step(action)
+            ep_steps += 1
+            
+            ep_min_dist = min(ep_min_dist, info.get("distance", float('inf')))
+            if info.get("success", False):
+                ep_success = True
+
+        if ep_success:
+            successes += 1
+        
+        min_distances.append(ep_min_dist)
+        total_steps += ep_steps
+        status = "SUCCESS" if ep_success else "FAILED"
+        
