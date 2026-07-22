@@ -305,8 +305,15 @@ class HoverEnv(BaseSingleAgentAviary):
 
     def _reset_wind(self):
         # FYP-II Phase 4: Curriculum Learning
-        # Define 3 stages based on total environment steps
-        if self.total_env_steps < 30000:
+        # FYP-II Phase 6: Mastery-Gated Curriculum (No longer hardcoded steps)
+        # We start at Stage 1, and the external Callback will manually increment `self.current_curriculum_stage`
+        if not hasattr(self, "current_curriculum_stage"):
+            self.current_curriculum_stage = 1
+
+        if not self.CURRICULUM_ENABLED:
+            self.current_curriculum_stage = 3
+            
+        if self.current_curriculum_stage == 1:
             # Stage 1: Calm air, no dynamics randomization
             active_wind_strength = 0.0
             active_rand_scale = 0.0
