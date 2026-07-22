@@ -181,6 +181,10 @@ class HoverEnv(BaseSingleAgentAviary):
         self.action_difference = action - self.last_ppo_action
         self.last_ppo_action = action.copy()
 
+        # Re-extract the Lipschitz-constrained components
+        vel_action = action[0:3]
+        lookahead_residual = action[3]
+
         # FYP-II Phase 1: Residual Reinforcement Learning (RRL) with Vortex APF (Phase 5)
         # Compute baseline navigation using Vortex Artificial Potential Fields (VAPF)
         state = self._getDroneStateVector(0)
