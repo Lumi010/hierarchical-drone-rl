@@ -171,8 +171,22 @@ class HoverEnv(BaseSingleAgentAviary):
         return obs.astype(np.float32)
 
     def _preprocessAction(self, action):
-        action = np.asarray(action, dtype=np.float32).reshape(3,)
-        action = np.clip(action, -1.0, 1.0)
+        # EXTENSION: Dynamic Target Tracking
+        if getattr(self, "active_scenario", "") == "tracking":
+            t = self.step_counter * self.TIMESTEP * self.AGGR_PHY_STEPS
+            # Figure-8 pattern around [1.5, 0.8, 1.0] to keep it in the room
+            freq = 0.3 # Hz
+            self.TARGET_POS[0] = 1.5 + 0.5 * np.sin(2 * np.pi * freq * t)
+            self.TARGET_POS[1] = 0.8 + 0.8 * np.sin(np.pi * freq * t)
+            self.TARGET_POS[2] = 1.0 + 0.3 * np.cos(2 * np.pi * freq * t)
+            self._draw_target() # Move the visual marker
+
+        action = np.asarray(action, dtype=np.float32).reshape(4,)
+        # We don't clip the entire action to -1/1 blindly because the space has specific bounds.
+        # SB3 already outputs actions strictly within the bounds if unnormalized, or [-1, 1] if normalized.
+        # However, to be safe, we extract the components:
+        vel_action = action[0:3]
+        lookahead_residual = action[3]
 
         # FYP-II Phase 4: Track total training steps
         self.total_env_steps += 1
