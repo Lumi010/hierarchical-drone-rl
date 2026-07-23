@@ -549,7 +549,7 @@ class HoverEnv(BaseSingleAgentAviary):
         if pos[2] < 0.08:
             print(f"[DEBUG] DONE: Too Low! altitude={pos[2]:.3f}")
             return True
-        if distance > 5.0:
+        if distance > 15.0:
             print(f"[DEBUG] DONE: Out of bounds! dist={distance:.3f}")
             return True
         if tilt > 1.4:
