@@ -110,8 +110,8 @@ class HoverEnv(BaseSingleAgentAviary):
         else:
             self.active_scenario = getattr(self, "SCENARIO", "slalom")
 
-        # Dynamic target start pos
-        self.TARGET_POS = np.array([2.0, 0.8, 1.0], dtype=np.float32)
+        # Dynamic target start pos (pushed to 2.5m to give drone room for gates)
+        self.TARGET_POS = np.array([2.5, 0.8, 1.0], dtype=np.float32)
 
         # FYP-II Phase 5: Clear stale obstacle and debug line/text IDs before super().reset()
         # because BaseAviary.reset() calls p.resetSimulation() (destroys all bodies and debug lines)
@@ -120,6 +120,7 @@ class HoverEnv(BaseSingleAgentAviary):
         self._wind_line_id = -1
         self._wind_text_id = -1
         self._vane_line_ids = [-1, -1, -1]
+        self._target_body_id = -1
 
         obs = super().reset()  # resetSimulation → _housekeeping → _addObstacles
         if hasattr(self, "ctrl"):
@@ -590,19 +591,27 @@ class HoverEnv(BaseSingleAgentAviary):
         if not self.GUI:
             return
 
-        visual_shape = p.createVisualShape(
-            shapeType=p.GEOM_SPHERE,
-            radius=self.GOAL_RADIUS,
-            rgbaColor=[0.1, 0.8, 0.2, 0.45],
-            physicsClientId=self.CLIENT,
-        )
-        p.createMultiBody(
-            baseMass=0,
-            baseCollisionShapeIndex=-1,
-            baseVisualShapeIndex=visual_shape,
-            basePosition=self.TARGET_POS.tolist(),
-            physicsClientId=self.CLIENT,
-        )
+        if not hasattr(self, "_target_body_id") or self._target_body_id == -1:
+            visual_shape = p.createVisualShape(
+                shapeType=p.GEOM_SPHERE,
+                radius=self.GOAL_RADIUS,
+                rgbaColor=[0.1, 0.8, 0.2, 0.45],
+                physicsClientId=self.CLIENT,
+            )
+            self._target_body_id = p.createMultiBody(
+                baseMass=0,
+                baseCollisionShapeIndex=-1,
+                baseVisualShapeIndex=visual_shape,
+                basePosition=self.TARGET_POS.tolist(),
+                physicsClientId=self.CLIENT,
+            )
+        else:
+            p.resetBasePositionAndOrientation(
+                self._target_body_id, 
+                self.TARGET_POS.tolist(), 
+                [0, 0, 0, 1], 
+                physicsClientId=self.CLIENT
+            )
 
     def _draw_wind(self):
         if not self.GUI or self.step_counter % 12 != 0:
@@ -736,36 +745,58 @@ class HoverEnv(BaseSingleAgentAviary):
         self.obstacle_configs = []
         scenario = getattr(self, "active_scenario", "slalom")
 
-        if scenario in ["slalom", "tracking"]:
+        if scenario == "slalom":
             self.obstacle_configs = [
-                {"pos": np.array([0.5, -0.2, 1.0], dtype=np.float32), "axis": 1, "speed": 0.15, "bounds": [-0.4, 0.0], "direction": 1.0, "shape": "box", "color": [0.72, 0.72, 0.70, 1.0]},
-                {"pos": np.array([1.0, 0.3, 1.0], dtype=np.float32), "axis": 1, "speed": 0.15, "bounds": [0.1, 0.5], "direction": -1.0, "shape": "cylinder", "color": [0.28, 0.30, 0.35, 1.0]},
-                {"pos": np.array([1.5, 0.8, 1.0], dtype=np.float32), "axis": 1, "speed": 0.15, "bounds": [0.6, 1.0], "direction": 1.0, "shape": "sphere", "color": [0.60, 0.70, 0.80, 1.0]}
+                {"pos": np.array([0.7, -0.4, 1.0], dtype=np.float32), "axis": 1, "speed": 0.2, "bounds": [-0.6, 0.0], "direction": 1.0, "shape": "cylinder", "color": [0.72, 0.72, 0.70, 1.0], "radius": 0.12},
+                {"pos": np.array([1.4, 0.4, 1.0], dtype=np.float32), "axis": 1, "speed": 0.2, "bounds": [0.0, 0.6], "direction": -1.0, "shape": "cylinder", "color": [0.28, 0.30, 0.35, 1.0], "radius": 0.12},
+                {"pos": np.array([2.1, 0.0, 1.0], dtype=np.float32), "axis": 1, "speed": 0.2, "bounds": [-0.4, 0.4], "direction": 1.0, "shape": "cylinder", "color": [0.60, 0.70, 0.80, 1.0], "radius": 0.12}
             ]
-        elif scenario == "forest":
-            # Procedural Forest: 15 tree trunks (some static, some moving)
-            for i in range(15):
-                x = np.random.uniform(0.3, 1.8)
-                y = np.random.uniform(-0.2, 1.8)
-                is_static = (np.random.rand() > 0.4)
-                speed = 0.0 if is_static else np.random.uniform(0.05, 0.25)
-                rad = np.random.uniform(0.05, 0.15)
+        elif scenario == "tracking":
+            # Target weaves through 4 floating dynamic obstacles
+            for x in [0.5, 1.0, 1.5, 2.0]:
+                y = np.random.uniform(-0.5, 0.5)
                 self.obstacle_configs.append({
-                    "pos": np.array([x, y, 1.0], dtype=np.float32),
-                    "axis": 1, "speed": speed, "bounds": [y - 0.3, y + 0.3],
-                    "direction": 1.0 if np.random.rand() > 0.5 else -1.0,
-                    "shape": "cylinder", "color": [0.35, 0.25, 0.15, 1.0], "radius": rad
+                    "pos": np.array([x, y, 1.0], dtype=np.float32), 
+                    "axis": 2, "speed": 0.2, "bounds": [0.6, 1.4], # bobbing up and down
+                    "direction": 1.0 if np.random.rand() > 0.5 else -1.0, 
+                    "shape": "sphere", "color": [0.9, 0.2, 0.8, 1.0], # Neon Pink
+                    "radius": 0.15
                 })
+        elif scenario == "forest":
+            # Procedural Forest: Grid with Jitter (8 trees)
+            xs = np.linspace(0.4, 1.8, 4)
+            ys = np.linspace(-0.5, 0.5, 2)
+            for x in xs:
+                for y in ys:
+                    jx = x + np.random.uniform(-0.1, 0.1)
+                    jy = y + np.random.uniform(-0.2, 0.2)
+                    is_static = (np.random.rand() > 0.4)
+                    speed = 0.0 if is_static else np.random.uniform(0.05, 0.2)
+                    rad = np.random.uniform(0.04, 0.08)
+                    # Randomize shades of brown and green
+                    color = [np.random.uniform(0.2, 0.4), np.random.uniform(0.4, 0.6), 0.2, 1.0] if np.random.rand() > 0.5 else [0.35, 0.25, 0.15, 1.0]
+                    self.obstacle_configs.append({
+                        "pos": np.array([jx, jy, 1.0], dtype=np.float32),
+                        "axis": 1, "speed": speed, "bounds": [jy - 0.2, jy + 0.2],
+                        "direction": 1.0 if np.random.rand() > 0.5 else -1.0,
+                        "shape": "cylinder", "color": color, "radius": rad
+                    })
         elif scenario == "racing":
-            # Drone Racing Track: 3 Procedural Gates
-            for i, x in enumerate([0.5, 1.0, 1.5]):
-                y = np.random.uniform(0.2, 0.8)
-                z = np.random.uniform(0.8, 1.2)
-                g_width = 0.3
-                g_height = 0.3
-                thickness = 0.04
-                color = [0.8, 0.1, 0.1, 1.0] # Red racing gates
-                # Add 4 beams for the gate
+            # Drone Racing Track: 2 sequential gates, alternating Y
+            g_width = 0.45
+            g_height = 0.45
+            thickness = 0.03
+            # Gate 1
+            x1 = 0.8
+            y1 = np.random.uniform(-0.6, -0.2)
+            z1 = np.random.uniform(0.8, 1.2)
+            # Gate 2
+            x2 = 1.7
+            y2 = np.random.uniform(0.2, 0.6)
+            z2 = np.random.uniform(0.8, 1.2)
+            
+            for i, (x, y, z) in enumerate([(x1, y1, z1), (x2, y2, z2)]):
+                color = [0.1, 0.8, 0.9, 1.0] if i == 0 else [1.0, 0.4, 0.1, 1.0] # Neon Blue and Neon Orange
                 for extents, offset in [
                     ([thickness, thickness, g_height], [0, -g_width, 0]), # Left
                     ([thickness, thickness, g_height], [0, g_width, 0]),  # Right
@@ -774,7 +805,7 @@ class HoverEnv(BaseSingleAgentAviary):
                 ]:
                     self.obstacle_configs.append({
                         "pos": np.array([x + offset[0], y + offset[1], z + offset[2]], dtype=np.float32),
-                        "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, # Static gates
+                        "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
                         "shape": "box", "extents": extents, "color": color
                     })
 
