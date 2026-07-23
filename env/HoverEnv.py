@@ -822,7 +822,8 @@ class HoverEnv(BaseSingleAgentAviary):
                         "axis": 1, "speed": speed, "bounds": [jy - 0.2, jy + 0.2],
                         "direction": 1.0 if np.random.rand() > 0.5 else -1.0,
                         "shape": "cylinder", "color": color, "radius": rad
-                  elif scenario == "racing":
+                    })
+        elif scenario == "racing":
             # 1. Massive F1-style Race Track Floor (Extended to 8m length)
             self.obstacle_configs.append({
                 "pos": np.array([3.0, 0.0, 0.02], dtype=np.float32), 
