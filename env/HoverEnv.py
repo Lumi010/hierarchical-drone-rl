@@ -753,12 +753,26 @@ class HoverEnv(BaseSingleAgentAviary):
                 {"pos": np.array([2.1, 0.0, 1.0], dtype=np.float32), "axis": 1, "speed": 0.2, "bounds": [-0.4, 0.4], "direction": 1.0, "shape": "cylinder", "color": [0.60, 0.70, 0.80, 1.0], "radius": 0.12}
             ]
         elif scenario == "tracking":
-            # 1. Add a physical visual "track" on the ground (made much larger)
+            # 1. Main Asphalt Track
             self.obstacle_configs.append({
                 "pos": np.array([2.5, 0.0, 0.02], dtype=np.float32), 
                 "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
-                "shape": "box", "extents": [3.5, 1.5, 0.02], "color": [0.2, 0.2, 0.2, 1.0] # Dark grey asphalt track
+                "shape": "box", "extents": [3.5, 2.0, 0.02], "color": [0.15, 0.15, 0.15, 1.0] # Dark asphalt
             })
+            # 2. Left & Right Red Track Borders
+            for by in [-2.0, 2.0]:
+                self.obstacle_configs.append({
+                    "pos": np.array([2.5, by, 0.03], dtype=np.float32), 
+                    "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
+                    "shape": "box", "extents": [3.5, 0.05, 0.03], "color": [0.9, 0.1, 0.1, 1.0] # Red Strip
+                })
+            # 3. Center White Dashed Line
+            for lx in np.arange(-0.5, 5.5, 1.0):
+                self.obstacle_configs.append({
+                    "pos": np.array([lx, 0.0, 0.03], dtype=np.float32), 
+                    "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
+                    "shape": "box", "extents": [0.25, 0.02, 0.03], "color": [1.0, 1.0, 1.0, 1.0]
+                })
             
             # 2. Moving hoops that the drone must fly through to catch the target
             # Made the gap massive (1.4m x 1.4m) so the safety shield (VAPF) doesn't block the drone from passing through!
@@ -807,9 +821,30 @@ class HoverEnv(BaseSingleAgentAviary):
                         "shape": "cylinder", "color": color, "radius": rad
                     })
         elif scenario == "racing":
+            # 1. Massive F1-style Race Track Floor
+            self.obstacle_configs.append({
+                "pos": np.array([2.5, 0.0, 0.02], dtype=np.float32), 
+                "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
+                "shape": "box", "extents": [3.5, 2.0, 0.02], "color": [0.15, 0.15, 0.15, 1.0] # Dark asphalt
+            })
+            # 2. Left & Right Red Track Borders
+            for by in [-2.0, 2.0]:
+                self.obstacle_configs.append({
+                    "pos": np.array([2.5, by, 0.03], dtype=np.float32), 
+                    "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
+                    "shape": "box", "extents": [3.5, 0.05, 0.03], "color": [0.9, 0.1, 0.1, 1.0] # Red Strip
+                })
+            # 3. Center White Dashed Line
+            for lx in np.arange(-0.5, 5.5, 1.0):
+                self.obstacle_configs.append({
+                    "pos": np.array([lx, 0.0, 0.03], dtype=np.float32), 
+                    "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
+                    "shape": "box", "extents": [0.25, 0.02, 0.03], "color": [1.0, 1.0, 1.0, 1.0]
+                })
+
             # Drone Racing Track: 2 sequential gates, alternating Y
-            g_width = 0.45
-            g_height = 0.45
+            g_width = 0.5
+            g_height = 0.5
             thickness = 0.03
             # Gate 1
             x1 = 0.8
