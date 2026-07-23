@@ -195,11 +195,13 @@ class HoverEnv(BaseSingleAgentAviary):
         # EXTENSION: Dynamic Target Tracking
         if getattr(self, "active_scenario", "") == "tracking":
             t = self.step_counter * self.TIMESTEP * self.AGGR_PHY_STEPS
-            # Figure-8 pattern around [1.5, 0.8, 1.0] to keep it in the room
-            freq = 0.3 # Hz
-            self.TARGET_POS[0] = 1.5 + 0.5 * np.sin(2 * np.pi * freq * t)
-            self.TARGET_POS[1] = 0.8 + 0.8 * np.sin(np.pi * freq * t)
-            self.TARGET_POS[2] = 1.0 + 0.3 * np.cos(2 * np.pi * freq * t)
+            freq = 0.15 # Hz
+            # Target sweeps smoothly from x=0.4 to x=2.4 (through the 3 hoops)
+            self.TARGET_POS[0] = 1.4 + 1.0 * np.sin(2 * np.pi * freq * t)
+            # Target stays centered in Y to pass cleanly through the hoops
+            self.TARGET_POS[1] = 0.0
+            # Target bobs up and down slightly to match the moving hoops
+            self.TARGET_POS[2] = 1.0 + 0.3 * np.sin(4 * np.pi * freq * t)
             self._draw_target() # Move the visual marker
 
         action = np.asarray(action, dtype=np.float32).reshape(4,)
@@ -752,16 +754,32 @@ class HoverEnv(BaseSingleAgentAviary):
                 {"pos": np.array([2.1, 0.0, 1.0], dtype=np.float32), "axis": 1, "speed": 0.2, "bounds": [-0.4, 0.4], "direction": 1.0, "shape": "cylinder", "color": [0.60, 0.70, 0.80, 1.0], "radius": 0.12}
             ]
         elif scenario == "tracking":
-            # Target weaves through 4 floating dynamic obstacles
-            for x in [0.5, 1.0, 1.5, 2.0]:
-                y = np.random.uniform(-0.5, 0.5)
-                self.obstacle_configs.append({
-                    "pos": np.array([x, y, 1.0], dtype=np.float32), 
-                    "axis": 2, "speed": 0.2, "bounds": [0.6, 1.4], # bobbing up and down
-                    "direction": 1.0 if np.random.rand() > 0.5 else -1.0, 
-                    "shape": "sphere", "color": [0.9, 0.2, 0.8, 1.0], # Neon Pink
-                    "radius": 0.15
-                })
+            # Target weaves through 3 moving floating hoops
+            g_width = 0.35
+            g_height = 0.35
+            thickness = 0.03
+            color = [0.9, 0.2, 0.8, 1.0] # Neon Pink
+            
+            for i, x in enumerate([0.7, 1.4, 2.1]):
+                y = 0.0
+                z = 1.0
+                # Shared dynamics for the entire hoop so the 4 beams stay synchronized
+                speed = 0.2
+                bounds = [0.6, 1.4]
+                direction = 1.0 if i % 2 == 0 else -1.0
+                
+                for extents, offset in [
+                    ([thickness, thickness, g_height], [0, -g_width, 0]), # Left
+                    ([thickness, thickness, g_height], [0, g_width, 0]),  # Right
+                    ([thickness, g_width, thickness], [0, 0, g_height]),  # Top
+                    ([thickness, g_width, thickness], [0, 0, -g_height])  # Bottom
+                ]:
+                    self.obstacle_configs.append({
+                        "pos": np.array([x + offset[0], y + offset[1], z + offset[2]], dtype=np.float32), 
+                        "axis": 2, "speed": speed, "bounds": bounds, 
+                        "direction": direction, 
+                        "shape": "box", "extents": extents, "color": color
+                    })
         elif scenario == "forest":
             # Procedural Forest: Grid with Jitter (8 trees)
             xs = np.linspace(0.4, 1.8, 4)
