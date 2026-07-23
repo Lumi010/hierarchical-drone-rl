@@ -111,7 +111,10 @@ class HoverEnv(BaseSingleAgentAviary):
             self.active_scenario = getattr(self, "SCENARIO", "slalom")
 
         # Dynamic target start pos (pushed to 2.5m to give drone room for gates)
-        self.TARGET_POS = np.array([2.5, 0.8, 1.0], dtype=np.float32)
+        if getattr(self, "active_scenario", "slalom") == "racing":
+            self.TARGET_POS = np.array([6.5, 0.0, 1.0], dtype=np.float32) # Massive 5-gate track
+        else:
+            self.TARGET_POS = np.array([2.5, 0.8, 1.0], dtype=np.float32)
 
         # FYP-II Phase 5: Clear stale obstacle and debug line/text IDs before super().reset()
         # because BaseAviary.reset() calls p.resetSimulation() (destroys all bodies and debug lines)
@@ -143,10 +146,10 @@ class HoverEnv(BaseSingleAgentAviary):
         # FYP-II Phase 5: Position camera to focus directly on the drone, obstacle, and target
         if self.GUI:
             p.resetDebugVisualizerCamera(
-                cameraDistance=2.5,
-                cameraYaw=-45,
-                cameraPitch=-20,
-                cameraTargetPosition=[0.5, 0.3, 0.7],
+                cameraDistance=3.5,
+                cameraYaw=-30,
+                cameraPitch=-25,
+                cameraTargetPosition=[1.5, 0.0, 1.0],
                 physicsClientId=self.CLIENT
             )
         return obs
@@ -819,44 +822,47 @@ class HoverEnv(BaseSingleAgentAviary):
                         "axis": 1, "speed": speed, "bounds": [jy - 0.2, jy + 0.2],
                         "direction": 1.0 if np.random.rand() > 0.5 else -1.0,
                         "shape": "cylinder", "color": color, "radius": rad
-                    })
-        elif scenario == "racing":
-            # 1. Massive F1-style Race Track Floor
+                  elif scenario == "racing":
+            # 1. Massive F1-style Race Track Floor (Extended to 8m length)
             self.obstacle_configs.append({
-                "pos": np.array([2.5, 0.0, 0.02], dtype=np.float32), 
+                "pos": np.array([3.0, 0.0, 0.02], dtype=np.float32), 
                 "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
-                "shape": "box", "extents": [3.5, 2.0, 0.02], "color": [0.15, 0.15, 0.15, 1.0] # Dark asphalt
+                "shape": "box", "extents": [4.0, 2.0, 0.02], "color": [0.15, 0.15, 0.15, 1.0] # Dark asphalt
             })
             # 2. Left & Right Red Track Borders
             for by in [-2.0, 2.0]:
                 self.obstacle_configs.append({
-                    "pos": np.array([2.5, by, 0.03], dtype=np.float32), 
+                    "pos": np.array([3.0, by, 0.03], dtype=np.float32), 
                     "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
-                    "shape": "box", "extents": [3.5, 0.05, 0.03], "color": [0.9, 0.1, 0.1, 1.0] # Red Strip
+                    "shape": "box", "extents": [4.0, 0.05, 0.03], "color": [0.9, 0.1, 0.1, 1.0] # Red Strip
                 })
             # 3. Center White Dashed Line
-            for lx in np.arange(-0.5, 5.5, 1.0):
+            for lx in np.arange(-0.5, 7.5, 1.0):
                 self.obstacle_configs.append({
                     "pos": np.array([lx, 0.0, 0.03], dtype=np.float32), 
                     "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
                     "shape": "box", "extents": [0.25, 0.02, 0.03], "color": [1.0, 1.0, 1.0, 1.0]
                 })
 
-            # Drone Racing Track: 2 sequential gates, alternating Y
-            g_width = 0.5
-            g_height = 0.5
+            # Drone Racing Track: 5 sequential gates, alternating Y
+            g_width = 0.35
+            g_height = 0.35
             thickness = 0.03
-            # Gate 1
-            x1 = 0.8
-            y1 = np.random.uniform(-0.6, -0.2)
-            z1 = np.random.uniform(0.8, 1.2)
-            # Gate 2
-            x2 = 1.7
-            y2 = np.random.uniform(0.2, 0.6)
-            z2 = np.random.uniform(0.8, 1.2)
             
-            for i, (x, y, z) in enumerate([(x1, y1, z1), (x2, y2, z2)]):
-                color = [0.1, 0.8, 0.9, 1.0] if i == 0 else [1.0, 0.4, 0.1, 1.0] # Neon Blue and Neon Orange
+            gate_x = [1.0, 2.2, 3.4, 4.6, 5.8]
+            colors = [
+                [1.0, 0.1, 0.1, 1.0], # Red
+                [0.1, 1.0, 0.1, 1.0], # Green
+                [0.1, 0.1, 1.0, 1.0], # Blue
+                [1.0, 1.0, 0.1, 1.0], # Yellow
+                [1.0, 0.1, 1.0, 1.0], # Pink
+            ]
+            
+            for i, x in enumerate(gate_x):
+                # Zig-zag pattern
+                y = np.random.uniform(-0.8, -0.3) if i % 2 == 0 else np.random.uniform(0.3, 0.8)
+                z = np.random.uniform(0.7, 1.3)
+                color = colors[i]
                 for extents, offset in [
                     ([thickness, thickness, g_height], [0, -g_width, 0]), # Left
                     ([thickness, thickness, g_height], [0, g_width, 0]),  # Right
@@ -864,10 +870,10 @@ class HoverEnv(BaseSingleAgentAviary):
                     ([thickness, g_width, thickness], [0, 0, -g_height])  # Bottom
                 ]:
                     self.obstacle_configs.append({
-                        "pos": np.array([x + offset[0], y + offset[1], z + offset[2]], dtype=np.float32),
+                        "pos": np.array([x + offset[0], y + offset[1], z + offset[2]], dtype=np.float32), 
                         "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
                         "shape": "box", "extents": extents, "color": color
-                    })
+                    })            })
 
         self.obstacle_positions = [cfg["pos"].copy() for cfg in self.obstacle_configs]
         self.obstacle_ids = []
