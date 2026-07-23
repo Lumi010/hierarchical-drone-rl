@@ -195,9 +195,9 @@ class HoverEnv(BaseSingleAgentAviary):
         # EXTENSION: Dynamic Target Tracking
         if getattr(self, "active_scenario", "") == "tracking":
             t = self.step_counter * self.TIMESTEP * self.AGGR_PHY_STEPS
-            # Target starts right in front of the drone (x=0.5) and shoots away fast,
-            # but exponentially slows down as it reaches x=3.5 so the drone can catch it.
-            self.TARGET_POS[0] = 0.5 + 3.0 * (1 - np.exp(-0.4 * t))
+            # Target starts right in front of the drone (x=1.0) and shoots away fast,
+            # but exponentially slows down as it reaches x=4.5 so the drone can catch it.
+            self.TARGET_POS[0] = 1.0 + 3.5 * (1 - np.exp(-0.4 * t))
             # Target stays centered above the track
             self.TARGET_POS[1] = 0.0
             self.TARGET_POS[2] = 1.0
@@ -753,25 +753,26 @@ class HoverEnv(BaseSingleAgentAviary):
                 {"pos": np.array([2.1, 0.0, 1.0], dtype=np.float32), "axis": 1, "speed": 0.2, "bounds": [-0.4, 0.4], "direction": 1.0, "shape": "cylinder", "color": [0.60, 0.70, 0.80, 1.0], "radius": 0.12}
             ]
         elif scenario == "tracking":
-            # 1. Add a physical visual "track" on the ground
+            # 1. Add a physical visual "track" on the ground (made much larger)
             self.obstacle_configs.append({
-                "pos": np.array([2.0, 0.0, 0.02], dtype=np.float32), 
+                "pos": np.array([2.5, 0.0, 0.02], dtype=np.float32), 
                 "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
-                "shape": "box", "extents": [2.5, 0.6, 0.02], "color": [0.2, 0.2, 0.2, 1.0] # Dark grey asphalt track
+                "shape": "box", "extents": [3.5, 1.5, 0.02], "color": [0.2, 0.2, 0.2, 1.0] # Dark grey asphalt track
             })
             
             # 2. Moving hoops that the drone must fly through to catch the target
-            g_width = 0.4
-            g_height = 0.4
+            # Made the gap massive (1.4m x 1.4m) so the safety shield (VAPF) doesn't block the drone from passing through!
+            g_width = 0.7
+            g_height = 0.7
             thickness = 0.03
             color = [0.9, 0.2, 0.8, 1.0] # Neon Pink
             
-            for i, x in enumerate([1.2, 2.0, 2.8]):
+            for i, x in enumerate([1.5, 2.5, 3.5]):
                 y = 0.0
                 z = 1.0
                 # Shared dynamics for the entire hoop so the 4 beams stay synchronized
                 speed = 0.25
-                bounds = [0.6, 1.4]
+                bounds = [0.4, 1.6]
                 direction = 1.0 if i % 2 == 0 else -1.0
                 
                 for extents, offset in [
