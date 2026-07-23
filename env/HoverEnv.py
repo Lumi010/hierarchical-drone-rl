@@ -874,7 +874,7 @@ class HoverEnv(BaseSingleAgentAviary):
                         "pos": np.array([x + offset[0], y + offset[1], z + offset[2]], dtype=np.float32), 
                         "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
                         "shape": "box", "extents": extents, "color": color
-                    })            })
+                    })
 
         self.obstacle_positions = [cfg["pos"].copy() for cfg in self.obstacle_configs]
         self.obstacle_ids = []
