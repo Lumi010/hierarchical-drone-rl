@@ -110,10 +110,8 @@ class HoverEnv(BaseSingleAgentAviary):
         else:
             self.active_scenario = getattr(self, "SCENARIO", "slalom")
 
-        if getattr(self, "active_scenario", "slalom") == "racing":
-            self.TARGET_POS = np.array([6.0, 0.0, 1.0], dtype=np.float32)
-        else:
-            self.TARGET_POS = np.array([1.5, 0.0, 1.0], dtype=np.float32)
+        # Dynamic target start pos
+        self.TARGET_POS = np.array([2.0, 0.8, 1.0], dtype=np.float32)
 
         # FYP-II Phase 5: Clear stale obstacle and debug line/text IDs before super().reset()
         # because BaseAviary.reset() calls p.resetSimulation() (destroys all bodies and debug lines)
@@ -122,7 +120,6 @@ class HoverEnv(BaseSingleAgentAviary):
         self._wind_line_id = -1
         self._wind_text_id = -1
         self._vane_line_ids = [-1, -1, -1]
-        self._target_body_id = -1
 
         obs = super().reset()  # resetSimulation → _housekeeping → _addObstacles
         if hasattr(self, "ctrl"):
@@ -145,10 +142,10 @@ class HoverEnv(BaseSingleAgentAviary):
         # FYP-II Phase 5: Position camera to focus directly on the drone, obstacle, and target
         if self.GUI:
             p.resetDebugVisualizerCamera(
-                cameraDistance=3.5,
-                cameraYaw=-30,
-                cameraPitch=-25,
-                cameraTargetPosition=[1.5, 0.0, 1.0],
+                cameraDistance=2.5,
+                cameraYaw=-45,
+                cameraPitch=-20,
+                cameraTargetPosition=[0.5, 0.3, 0.7],
                 physicsClientId=self.CLIENT
             )
         return obs
@@ -195,20 +192,14 @@ class HoverEnv(BaseSingleAgentAviary):
 
     def _preprocessAction(self, action):
         # EXTENSION: Dynamic Target Tracking
-        if getattr(self, "active_scenario", "") == "racing":
+        if getattr(self, "active_scenario", "") == "tracking":
             t = self.step_counter * self.TIMESTEP * self.AGGR_PHY_STEPS
-            # Target flies straight through the gates and completely stops at x=5.5
-            self.TARGET_POS[0] = 1.0 + 4.5 * (1 - np.exp(-0.8 * t))
-            self.TARGET_POS[1] = 0.0
-            self.TARGET_POS[2] = 1.0
-            self._draw_target() 
-        elif getattr(self, "active_scenario", "") == "tracking":
-            t = self.step_counter * self.TIMESTEP * self.AGGR_PHY_STEPS
-            # Target moves straight and completely stops at x=3.0 so drone easily catches it
-            self.TARGET_POS[0] = 1.0 + 2.0 * (1 - np.exp(-0.8 * t))
-            self.TARGET_POS[1] = 0.0
-            self.TARGET_POS[2] = 1.0
-            self._draw_target()
+            # Figure-8 pattern around [1.5, 0.8, 1.0] to keep it in the room
+            freq = 0.3 # Hz
+            self.TARGET_POS[0] = 1.5 + 0.5 * np.sin(2 * np.pi * freq * t)
+            self.TARGET_POS[1] = 0.8 + 0.8 * np.sin(np.pi * freq * t)
+            self.TARGET_POS[2] = 1.0 + 0.3 * np.cos(2 * np.pi * freq * t)
+            self._draw_target() # Move the visual marker
 
         action = np.asarray(action, dtype=np.float32).reshape(4,)
         # We don't clip the entire action to -1/1 blindly because the space has specific bounds.
@@ -553,7 +544,7 @@ class HoverEnv(BaseSingleAgentAviary):
         if pos[2] < 0.08:
             print(f"[DEBUG] DONE: Too Low! altitude={pos[2]:.3f}")
             return True
-        if distance > 15.0:
+        if distance > 5.0:
             print(f"[DEBUG] DONE: Out of bounds! dist={distance:.3f}")
             return True
         if tilt > 1.4:
@@ -599,20 +590,19 @@ class HoverEnv(BaseSingleAgentAviary):
         if not self.GUI:
             return
 
-        if not hasattr(self, "_target_body_id") or self._target_body_id == -1:
-            self._target_body_id = p.loadURDF(
-                "assets/tracking_target.urdf",
-                self.TARGET_POS.tolist(),
-                useFixedBase=True,
-                physicsClientId=self.CLIENT
-            )
-        else:
-            p.resetBasePositionAndOrientation(
-                self._target_body_id, 
-                self.TARGET_POS.tolist(), 
-                [0, 0, 0, 1], 
-                physicsClientId=self.CLIENT
-            )
+        visual_shape = p.createVisualShape(
+            shapeType=p.GEOM_SPHERE,
+            radius=self.GOAL_RADIUS,
+            rgbaColor=[0.1, 0.8, 0.2, 0.45],
+            physicsClientId=self.CLIENT,
+        )
+        p.createMultiBody(
+            baseMass=0,
+            baseCollisionShapeIndex=-1,
+            baseVisualShapeIndex=visual_shape,
+            basePosition=self.TARGET_POS.tolist(),
+            physicsClientId=self.CLIENT,
+        )
 
     def _draw_wind(self):
         if not self.GUI or self.step_counter % 12 != 0:
@@ -746,57 +736,53 @@ class HoverEnv(BaseSingleAgentAviary):
         self.obstacle_configs = []
         scenario = getattr(self, "active_scenario", "slalom")
 
-        if scenario == "slalom":
+        if scenario in ["slalom", "tracking"]:
             self.obstacle_configs = [
-                {"pos": np.array([0.7, -0.4, 1.0], dtype=np.float32), "axis": 1, "speed": 0.2, "bounds": [-0.6, 0.0], "direction": 1.0, "shape": "cylinder", "color": [0.72, 0.72, 0.70, 1.0], "radius": 0.12},
-                {"pos": np.array([1.4, 0.4, 1.0], dtype=np.float32), "axis": 1, "speed": 0.2, "bounds": [0.0, 0.6], "direction": -1.0, "shape": "cylinder", "color": [0.28, 0.30, 0.35, 1.0], "radius": 0.12},
-                {"pos": np.array([2.1, 0.0, 1.0], dtype=np.float32), "axis": 1, "speed": 0.2, "bounds": [-0.4, 0.4], "direction": 1.0, "shape": "cylinder", "color": [0.60, 0.70, 0.80, 1.0], "radius": 0.12}
-            ]
-        elif scenario == "tracking":
-            # Clean, professional minimalist tracking: 2 static grey cylinders to weave around
-            self.obstacle_configs = [
-                {"pos": np.array([1.5, 0.5, 1.0], dtype=np.float32), "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, "shape": "cylinder", "color": [0.4, 0.4, 0.4, 1.0], "radius": 0.15},
-                {"pos": np.array([1.5, -0.5, 1.0], dtype=np.float32), "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, "shape": "cylinder", "color": [0.4, 0.4, 0.4, 1.0], "radius": 0.15}
+                {"pos": np.array([0.5, -0.2, 1.0], dtype=np.float32), "axis": 1, "speed": 0.15, "bounds": [-0.4, 0.0], "direction": 1.0, "shape": "box", "color": [0.72, 0.72, 0.70, 1.0]},
+                {"pos": np.array([1.0, 0.3, 1.0], dtype=np.float32), "axis": 1, "speed": 0.15, "bounds": [0.1, 0.5], "direction": -1.0, "shape": "cylinder", "color": [0.28, 0.30, 0.35, 1.0]},
+                {"pos": np.array([1.5, 0.8, 1.0], dtype=np.float32), "axis": 1, "speed": 0.15, "bounds": [0.6, 1.0], "direction": 1.0, "shape": "sphere", "color": [0.60, 0.70, 0.80, 1.0]}
             ]
         elif scenario == "forest":
-            # Procedural Forest: Grid with Jitter (8 trees)
-            xs = np.linspace(0.4, 1.8, 4)
-            ys = np.linspace(-0.5, 0.5, 2)
-            for x in xs:
-                for y in ys:
-                    jx = x + np.random.uniform(-0.1, 0.1)
-                    jy = y + np.random.uniform(-0.2, 0.2)
-                    is_static = (np.random.rand() > 0.4)
-                    speed = 0.0 if is_static else np.random.uniform(0.05, 0.2)
-                    rad = np.random.uniform(0.04, 0.08)
-                    # Clean matte brown
-                    color = [0.4, 0.3, 0.2, 1.0]
-                    self.obstacle_configs.append({
-                        "pos": np.array([jx, jy, 1.0], dtype=np.float32),
-                        "axis": 1, "speed": speed, "bounds": [jy - 0.2, jy + 0.2],
-                        "direction": 1.0 if np.random.rand() > 0.5 else -1.0,
-                        "shape": "cylinder", "color": color, "radius": rad
-                    })
-        elif scenario == "racing":
-            # Professional standard racing gates (URDF)
-            for x in [1.5, 3.0, 4.5, 6.0]:
+            # Procedural Forest: 15 tree trunks (some static, some moving)
+            for i in range(15):
+                x = np.random.uniform(0.3, 1.8)
+                y = np.random.uniform(-0.2, 1.8)
+                is_static = (np.random.rand() > 0.4)
+                speed = 0.0 if is_static else np.random.uniform(0.05, 0.25)
+                rad = np.random.uniform(0.05, 0.15)
                 self.obstacle_configs.append({
-                    "pos": np.array([x, 0.0, 0.0], dtype=np.float32), 
-                    "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
-                    "shape": "urdf", "urdf_path": "assets/racing_gate.urdf"
+                    "pos": np.array([x, y, 1.0], dtype=np.float32),
+                    "axis": 1, "speed": speed, "bounds": [y - 0.3, y + 0.3],
+                    "direction": 1.0 if np.random.rand() > 0.5 else -1.0,
+                    "shape": "cylinder", "color": [0.35, 0.25, 0.15, 1.0], "radius": rad
                 })
+        elif scenario == "racing":
+            # Drone Racing Track: 3 Procedural Gates
+            for i, x in enumerate([0.5, 1.0, 1.5]):
+                y = np.random.uniform(0.2, 0.8)
+                z = np.random.uniform(0.8, 1.2)
+                g_width = 0.3
+                g_height = 0.3
+                thickness = 0.04
+                color = [0.8, 0.1, 0.1, 1.0] # Red racing gates
+                # Add 4 beams for the gate
+                for extents, offset in [
+                    ([thickness, thickness, g_height], [0, -g_width, 0]), # Left
+                    ([thickness, thickness, g_height], [0, g_width, 0]),  # Right
+                    ([thickness, g_width, thickness], [0, 0, g_height]),  # Top
+                    ([thickness, g_width, thickness], [0, 0, -g_height])  # Bottom
+                ]:
+                    self.obstacle_configs.append({
+                        "pos": np.array([x + offset[0], y + offset[1], z + offset[2]], dtype=np.float32),
+                        "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, # Static gates
+                        "shape": "box", "extents": extents, "color": color
+                    })
 
         self.obstacle_positions = [cfg["pos"].copy() for cfg in self.obstacle_configs]
         self.obstacle_ids = []
 
         for cfg in self.obstacle_configs:
             shape = cfg["shape"]
-            
-            if shape == "urdf":
-                body_id = p.loadURDF(cfg["urdf_path"], cfg["pos"], useFixedBase=True, physicsClientId=self.CLIENT)
-                self.obstacle_ids.append(body_id)
-                continue
-                
             color = cfg["color"]
             if shape == "box":
                 extents = cfg.get("extents", [self.obstacle_radius, self.obstacle_radius, 1.0])

@@ -1,0 +1,199 @@
+diff --git a/tv.jsx b/tv.jsx
+new file mode 100644
+index 0000000..61b4b58
+--- /dev/null
++++ b/tv.jsx
+@@ @@ -0,0 +1,190 @@
++// Photoshop Script (JSX) to automate TV and Frame mockup creation for multiple designs.
++// Prompts the user to:
++// 1. Select multiple design image files (JPG/JPEG/PNG).
++// 2. Select the folder containing the PSD mockup templates.
++// 3. Select the destination folder for exporting.
++// Creates a design-specific subfolder for each selected design and exports all its mockups there.
++//
++// Optimized for performance and low memory consumption:
++// - Loops PSD templates on the outer loop so each PSD is opened only ONCE.
++// - Suppresses dialog popups to prevent execution halts.
++// - Purges history caches and temp data after each template to reclaim RAM.
++// - Collects errors to display at the end to prevent modal popups from freezing the background.
++
++var filterFiles;
++if (Folder.fs === "Windows") {
++    filterFiles = "JPEG/PNG Files: *.jpg;*.jpeg;*.png";
++} else {
++    filterFiles = function(file) {
++        if (file instanceof Folder) return true;
++        var name = file.name.toLowerCase();
++        return (name.match(/\.(jpg|jpeg|png)$/i) !== null);
++    };
++}
++
++// 1. Prompt for multiple design files
++var designFiles = File.openDialog("Select your design JPG/PNG files (Hold Ctrl/Shift to select multiple):", filterFiles, true);
++
++if (designFiles && designFiles.length > 0) {
++    // 2. Prompt for the mockup PSDs directory
++    var mockupFolder = Folder.selectDialog("Select the folder containing your PSD mockup templates:");
++    
++    if (mockupFolder) {
++        var files = mockupFolder.getFiles("*.psd");
++        
++        if (files.length === 0) {
++            alert("No PSD mockup templates found in the selected folder.");
++        } else {
++            // 3. Prompt for the destination export folder
++            var exportFolder = Folder.selectDialog("Select the folder where you want to export the finished mockups:");
++            
++            if (exportFolder) {
++                // Save original Photoshop preferences
++                var originalDisplayDialogs = app.displayDialogs;
++                app.displayDialogs = DialogModes.NO; // Suppress modal dialogs (color mismatches, fonts, etc.)
++
++                // Ensure designFiles is treated as an array
++                if (!(designFiles instanceof Array)) {
++                    designFiles = [designFiles];
++                }
++
++                // Pre-create all design-specific export folders
++                var designSubFolders = [];
++                for (var d = 0; d < designFiles.length; d++) {
++                    var designName = designFiles[d].name.replace(/\.[^\.]+$/, "");
++                    var subFolder = new Folder(exportFolder.fsName + "/" + designName);
++                    if (!subFolder.exists) {
++                        subFolder.create();
++                    }
++                    designSubFolders.push(subFolder);
++                }
++
++                var errorLog = [];
++
++                // Loop through each PSD mockup template (Outer loop - open each PSD only once!)
++                for (var i = 0; i < files.length; i++) {
++                    var doc = null;
++                    try {
++                        doc = open(files[i]);
++                    } catch (openError) {
++                        errorLog.push("Could not open template " + files[i].name + ": " + openError.message);
++                        continue;
++                    }
++
++                    var filename = doc.name.toLowerCase();
++                    var is4K = (filename.indexOf("3840") !== -1 || filename.indexOf("2160") !== -1);
++                    
++                    try {
++                        var smartObjectLayer = null;
++                        
++                        // Recursive layer search helpers
++                        var findLayerRecursive = function(parent, name) {
++                            for (var k = 0; k < parent.artLayers.length; k++) {
++                                if (parent.artLayers[k].name.toLowerCase() === name.toLowerCase()) {
++                                    return parent.artLayers[k];
++                                }
++                            }
++                            for (var k = 0; k < parent.layerSets.length; k++) {
++                                var found = findLayerRecursive(parent.layerSets[k], name);
++                                if (found) return found;
++                            }
++                            return null;
++                        };
++
++                        var findFirstSmartObject = function(parent) {
++                            for (var k = 0; k < parent.artLayers.length; k++) {
++                                if (parent.artLayers[k].kind === LayerKind.SMARTOBJECT) {
++                                    return parent.artLayers[k];
++                                }
++                            }
++                            for (var k = 0; k < parent.layerSets.length; k++) {
++                                var found = findFirstSmartObject(parent.layerSets[k]);
++                                if (found) return found;
++                            }
++                            return null;
++                        };
++
++                        // Priority list of names to search for
++                        var targetNames = is4K 
++                            ? ["Layer 1", "Place Your Design Here", "design"]
++                            : ["Place Your Design Here", "Layer 1", "design"];
++                        
++                        for (var j = 0; j < targetNames.length; j++) {
++                            smartObjectLayer = findLayerRecursive(doc, targetNames[j]);
++                            if (smartObjectLayer) break;
++                        }
++                        
++                        if (!smartObjectLayer) {
++                            smartObjectLayer = findFirstSmartObject(doc);
++                        }
++                        
++                        if (!smartObjectLayer) {
++                            throw new Error("Could not find any Smart Object layer in this PSD.");
++                        }
++                        
++                        doc.activeLayer = smartObjectLayer;
++
++                        // Loop through each selected design file and swap inside the open PSD
++                        for (var d = 0; d < designFiles.length; d++) {
++                            try {
++                                // Replace smart object content using Action Manager
++                                var idplacedLayerReplaceContents = stringIDToTypeID("placedLayerReplaceContents");
++                                var desc = new ActionDescriptor();
++                                desc.putPath(charIDToTypeID("null"), new File(designFiles[d]));
++                                executeAction(idplacedLayerReplaceContents, desc, DialogModes.NO);
++                                
++                                // Create destination file inside the design-specific subfolder
++                                var jpgFile = new File(designSubFolders[d].fsName + "/" + doc.name.replace(".psd", ".jpg"));
++
++                                if (is4K) {
++                                    // Max quality (12) save as copy for 4K resolution file
++                                    var jpgSaveOptions = new JPEGSaveOptions();
++                                    jpgSaveOptions.embedColorProfile = true;
++                                    jpgSaveOptions.formatOptions = FormatOptions.STANDARDBASELINE;
++                                    jpgSaveOptions.matte = MatteType.NONE;
++                                    jpgSaveOptions.quality = 12;
++                                    
++                                    doc.saveAs(jpgFile, jpgSaveOptions, true, Extension.LOWERCASE);
++                                } else {
++                                    // Export As JPG with "Great" Quality (80%) for normal mockups
++                                    var exportOptions = new ExportOptionsSaveForWeb();
++                                    exportOptions.format = SaveDocumentType.JPEG;
++                                    exportOptions.quality = 80;
++                                    exportOptions.optimized = true;
++                                    exportOptions.includeProfile = true; // Preserve color profile
++                                    
++                                    doc.exportDocument(jpgFile, ExportType.SAVEFORWEB, exportOptions);
++                                }
++                            } catch (swapError) {
++                                errorLog.push("Error applying design " + designFiles[d].name + " to template " + doc.name + ": " + swapError.message);
++                            }
++                        }
++                        
++                    } catch (e) {
++                        errorLog.push("Error processing template " + doc.name + ": " + e.message);
++                    }
++                    
++                    // Close PSD template without saving changes
++                    doc.close(SaveOptions.DONOTSAVECHANGES);
++                    
++                    // Reclaim memory/RAM in Photoshop
++                    try {
++                        app.purge(PurgeTarget.ALL);
++                    } catch (purgeError) {
++                        // Purge occasionally errors out if there is nothing to purge; ignore it
++                    }
++                }
++
++                // Restore original preference
++                app.displayDialogs = originalDisplayDialogs;
++                
++                // Show completion summary
++                var summaryMessage = "Automation complete! Finished processing mockups for " + designFiles.length + " designs.";
++                if (errorLog.length > 0) {
++                    summaryMessage += "\n\nWarnings/Errors encountered:\n- " + errorLog.join("\n- ");
++                }
++                alert(summaryMessage);
++            }
++        }
++    }
++}
+-- 
+2.53.0.windows.1
+

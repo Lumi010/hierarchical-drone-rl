@@ -39,10 +39,8 @@ class HoverEnv(BaseSingleAgentAviary):
         randomize_dynamics=False,
         obstacles_enabled=True,
         curriculum_enabled=True,
-        scenario="slalom",
     ):
         self.TARGET_POS = np.array(target_xyz if target_xyz is not None else [2.0, 0.8, 1.0], dtype=np.float32)
-        self.SCENARIO = str(scenario)
         self.WIND_ENABLED = bool(wind_enabled)
         self.WIND_STRENGTH = float(wind_strength)
         self.RANDOM_WIND = bool(random_wind)
@@ -67,9 +65,8 @@ class HoverEnv(BaseSingleAgentAviary):
         self.episode_success = False
         self._wind_line_id = -1
         # FYP-II Phase 2: Temporal awareness — track the previous PPO action
-        # FYP-II Phase 6: Expanded to 4D to include Adaptive Kinematic Bridge Lookahead
-        self.last_ppo_action = np.zeros(4, dtype=np.float32)
-        self.action_difference = np.zeros(4, dtype=np.float32)
+        self.last_ppo_action = np.zeros(3, dtype=np.float32)
+        self.action_difference = np.zeros(3, dtype=np.float32)
 
         # FYP-II Phase 4: Curriculum Learning & Domain Randomization
         self.total_env_steps = 0
@@ -104,17 +101,6 @@ class HoverEnv(BaseSingleAgentAviary):
         self.EPISODE_LEN_SEC = 18.0
 
     def reset(self):
-        # Pick the active scenario for this episode
-        if getattr(self, "SCENARIO", "slalom") == "mixed":
-            self.active_scenario = np.random.choice(["slalom", "forest", "racing", "tracking"])
-        else:
-            self.active_scenario = getattr(self, "SCENARIO", "slalom")
-
-        if getattr(self, "active_scenario", "slalom") == "racing":
-            self.TARGET_POS = np.array([6.0, 0.0, 1.0], dtype=np.float32)
-        else:
-            self.TARGET_POS = np.array([1.5, 0.0, 1.0], dtype=np.float32)
-
         # FYP-II Phase 5: Clear stale obstacle and debug line/text IDs before super().reset()
         # because BaseAviary.reset() calls p.resetSimulation() (destroys all bodies and debug lines)
         # then _housekeeping() -> _addObstacles() re-creates them.
@@ -122,7 +108,6 @@ class HoverEnv(BaseSingleAgentAviary):
         self._wind_line_id = -1
         self._wind_text_id = -1
         self._vane_line_ids = [-1, -1, -1]
-        self._target_body_id = -1
 
         obs = super().reset()  # resetSimulation → _housekeeping → _addObstacles
         if hasattr(self, "ctrl"):
@@ -137,33 +122,30 @@ class HoverEnv(BaseSingleAgentAviary):
         self.last_wind = np.zeros(3, dtype=np.float32)
         self.last_desired_velocity = np.zeros(3, dtype=np.float32)
         # FYP-II Phase 2: Reset temporal action tracking
-        self.last_ppo_action = np.zeros(4, dtype=np.float32)
-        self.action_difference = np.zeros(4, dtype=np.float32)
+        self.last_ppo_action = np.zeros(3, dtype=np.float32)
+        self.action_difference = np.zeros(3, dtype=np.float32)
         self._reset_wind()
         self._draw_target()
 
         # FYP-II Phase 5: Position camera to focus directly on the drone, obstacle, and target
         if self.GUI:
             p.resetDebugVisualizerCamera(
-                cameraDistance=3.5,
-                cameraYaw=-30,
-                cameraPitch=-25,
-                cameraTargetPosition=[1.5, 0.0, 1.0],
+                cameraDistance=2.5,
+                cameraYaw=-45,
+                cameraPitch=-20,
+                cameraTargetPosition=[0.5, 0.3, 0.7],
                 physicsClientId=self.CLIENT
             )
         return obs
 
     def _actionSpace(self):
-        # FYP-II Phase 6 (Adaptive Kinematic Bridge):
-        # 4D Action Space: 3D Velocity Residuals (+/-0.2), 1D Lookahead Residual (+/-0.15)
-        low = np.array([-0.2, -0.2, -0.2, -0.15], dtype=np.float32)
-        high = np.array([0.2, 0.2, 0.2, 0.15], dtype=np.float32)
-        return spaces.Box(low=low, high=high, dtype=np.float32)
+        # Limit PPO residual actions to +/-0.2 to prevent overriding baseline safety logic
+        return spaces.Box(low=-0.2 * np.ones(3, dtype=np.float32), high=0.2 * np.ones(3, dtype=np.float32), dtype=np.float32)
 
     def _observationSpace(self):
-        # Base observation space is 20D (adds prev 4D action to 16D base)
-        # FYP-II Phase 5: Expanded to 28D when obstacles are enabled (adds 8 normalized raycast distances)
-        dim = 28 if getattr(self, "OBSTACLES", False) else 20
+        # Base observation space is 19D (adds prev action to 16D base)
+        # FYP-II Phase 5: Expanded to 27D when obstacles are enabled (adds 8 normalized raycast distances)
+        dim = 27 if getattr(self, "OBSTACLES", False) else 19
         return spaces.Box(low=-np.ones(dim), high=np.ones(dim), dtype=np.float32)
 
     def _computeObs(self):
@@ -194,48 +176,15 @@ class HoverEnv(BaseSingleAgentAviary):
         return obs.astype(np.float32)
 
     def _preprocessAction(self, action):
-        # EXTENSION: Dynamic Target Tracking
-        if getattr(self, "active_scenario", "") == "racing":
-            t = self.step_counter * self.TIMESTEP * self.AGGR_PHY_STEPS
-            # Target flies straight through the gates and completely stops at x=5.5
-            self.TARGET_POS[0] = 1.0 + 4.5 * (1 - np.exp(-0.8 * t))
-            self.TARGET_POS[1] = 0.0
-            self.TARGET_POS[2] = 1.0
-            self._draw_target() 
-        elif getattr(self, "active_scenario", "") == "tracking":
-            t = self.step_counter * self.TIMESTEP * self.AGGR_PHY_STEPS
-            # Target moves straight and completely stops at x=3.0 so drone easily catches it
-            self.TARGET_POS[0] = 1.0 + 2.0 * (1 - np.exp(-0.8 * t))
-            self.TARGET_POS[1] = 0.0
-            self.TARGET_POS[2] = 1.0
-            self._draw_target()
-
-        action = np.asarray(action, dtype=np.float32).reshape(4,)
-        # We don't clip the entire action to -1/1 blindly because the space has specific bounds.
-        # SB3 already outputs actions strictly within the bounds if unnormalized, or [-1, 1] if normalized.
-        # However, to be safe, we extract the components:
-        vel_action = action[0:3]
-        lookahead_residual = action[3]
+        action = np.asarray(action, dtype=np.float32).reshape(3,)
+        action = np.clip(action, -1.0, 1.0)
 
         # FYP-II Phase 4: Track total training steps
         self.total_env_steps += 1
 
-        # FYP-II Phase 2 & 6: Compute 4D action difference for smoothness penalty, then update
-        raw_action_diff = action - self.last_ppo_action
-        
-        # EXTENSION 7: Lipschitz-Constrained Action Smoothing
-        # Enforce strict mathematical bounds on how fast the action can change per step.
-        # Max change per step: 0.15 (this puts a physical speed limit on the control signal).
-        max_action_delta = 0.15
-        clipped_diff = np.clip(raw_action_diff, -max_action_delta, max_action_delta)
-        action = self.last_ppo_action + clipped_diff
-        
-        self.action_difference = clipped_diff
+        # FYP-II Phase 2: Compute action difference for smoothness penalty, then update
+        self.action_difference = action - self.last_ppo_action
         self.last_ppo_action = action.copy()
-
-        # Re-extract the Lipschitz-constrained components
-        vel_action = action[0:3]
-        lookahead_residual = action[3]
 
         # FYP-II Phase 1: Residual Reinforcement Learning (RRL) with Vortex APF (Phase 5)
         # Compute baseline navigation using Vortex Artificial Potential Fields (VAPF)
@@ -300,30 +249,12 @@ class HoverEnv(BaseSingleAgentAviary):
         dist_to_goal = np.linalg.norm(target_error)
         if dist_to_goal < 0.8:
             residual_scale = max(0.0, (dist_to_goal - 0.35) / (0.8 - 0.35))
-            vel_action = vel_action * residual_scale
+            action = action * residual_scale
 
         # Total action = baseline action + PPO residual correction action
-        total_action = np.clip(base_action + vel_action, -1.0, 1.0)
-        
-        # EXTENSION 6: Lightweight Control Barrier Function (CBF) Safety Shield
-        # If the raycast sensor detects an obstacle within critical suicide range (<0.3m, which is ray_obs < 0.2)
-        # or altitude is too low, we mathematically overwrite the velocity command to prevent a crash.
-        if self.OBSTACLES:
-            ray_obs = self._get_raycast_observations()
-            if ray_obs[0] < 0.2 and total_action[0] > 0:
-                # Guaranteed crash if we keep moving forward. CBF intercepts.
-                total_action[0] = -0.1  # Force an emergency brake/reverse
-            # Check altitude safety (Floor CBF)
-            if state[2] < 0.3 and total_action[2] < 0:
-                total_action[2] = 0.0 # Force hover, stop descending
-
-        # FYP-II Phase 6: Adaptive Kinematic Bridge Lookahead
-        # Base lookahead is 0.25s, AI can adapt it dynamically between 0.10s and 0.40s
-        dynamic_lookahead = np.clip(0.25 + lookahead_residual, 0.10, 0.40)
-        self.current_dynamic_lookahead = float(dynamic_lookahead)
-
+        total_action = np.clip(base_action + action, -1.0, 1.0)
         if self.step_counter % 120 == 0:
-            print(f"[DEBUG] step {self.step_counter:04d} | base_act {base_action} | ppo_act {vel_action} | lookahead {dynamic_lookahead:.3f}s")
+            print(f"[DEBUG] step {self.step_counter:04d} | base_act {base_action} | ppo_act {action} | tot_act {total_action}")
 
         desired_velocity = np.array([
             total_action[0] * self.MAX_XY_SPEED,
@@ -332,7 +263,7 @@ class HoverEnv(BaseSingleAgentAviary):
         ], dtype=np.float32)
 
         state = self._getDroneStateVector(0)
-        target_pos = state[0:3] + desired_velocity * dynamic_lookahead
+        target_pos = state[0:3] + desired_velocity * self.VELOCITY_LOOKAHEAD_SEC
         target_pos[2] = np.clip(target_pos[2], 0.25, 2.2)
         self.last_desired_velocity = desired_velocity
 
@@ -350,23 +281,6 @@ class HoverEnv(BaseSingleAgentAviary):
         return rpm
 
     def _physics(self, rpm, nth_drone):
-        # EXTENSION 5: Aerodynamic Ground Effect / Downwash Physics
-        # Based on ProxFly (Zhang et al. 2024), apply an upward force when altitude Z < 0.5m.
-        # F_ge = k_ge / (Z^2). This simulates the thrust bouncing off the floor.
-        pos = self.pos[nth_drone]
-        altitude = pos[2]
-        if 0.05 < altitude < 0.5:
-            k_ge = 0.005
-            ge_force = min(k_ge / (altitude ** 2), 0.4) # Clamp max force to 0.4N to prevent physics explosions
-            p.applyExternalForce(
-                self.DRONE_IDS[nth_drone],
-                -1,
-                forceObj=[0.0, 0.0, ge_force],
-                posObj=pos.tolist(),
-                flags=p.WORLD_FRAME,
-                physicsClientId=self.CLIENT,
-            )
-
         super()._physics(rpm, nth_drone)
         self._apply_wind(nth_drone)
         self._updateObstacles()  # FYP-II Phase 5: Move dynamic obstacles each step
@@ -417,26 +331,27 @@ class HoverEnv(BaseSingleAgentAviary):
 
     def _reset_wind(self):
         # FYP-II Phase 4: Curriculum Learning
-        # FYP-II Phase 6: Mastery-Gated Curriculum (No longer hardcoded steps)
-        # We start at Stage 1, and the external Callback will manually increment `self.current_curriculum_stage`
-        if not hasattr(self, "current_curriculum_stage"):
-            self.current_curriculum_stage = 1
-
+        # Define 3 stages based on total environment steps (bypass if disabled)
         if not self.CURRICULUM_ENABLED:
             self.current_curriculum_stage = 3
-            
-        if self.current_curriculum_stage == 1:
-            # Stage 1: Calm air, no dynamics randomization
-            active_wind_strength = 0.0
-            active_rand_scale = 0.0
-        elif self.current_curriculum_stage == 2:
-            # Stage 2: Light wind, moderate dynamics randomization (50% bounds)
-            active_wind_strength = self.WIND_STRENGTH * 0.5
-            active_rand_scale = 0.5
-        else:
-            # Stage 3: Full storm, full dynamics randomization (100% bounds)
             active_wind_strength = self.WIND_STRENGTH
             active_rand_scale = 1.0
+        else:
+            if self.total_env_steps < 30000:
+                # Stage 1: Calm air, no dynamics randomization
+                self.current_curriculum_stage = 1
+                active_wind_strength = 0.0
+                active_rand_scale = 0.0
+            elif self.total_env_steps < 80000:
+                # Stage 2: Light wind, moderate dynamics randomization (50% bounds)
+                self.current_curriculum_stage = 2
+                active_wind_strength = self.WIND_STRENGTH * 0.5
+                active_rand_scale = 0.5
+            else:
+                # Stage 3: Full storm, full dynamics randomization (100% bounds)
+                self.current_curriculum_stage = 3
+                active_wind_strength = self.WIND_STRENGTH
+                active_rand_scale = 1.0
 
         # Compute wind strength scale (apply random fluctuations if RANDOM_WIND is enabled)
         if not self.RANDOM_WIND:
@@ -553,7 +468,7 @@ class HoverEnv(BaseSingleAgentAviary):
         if pos[2] < 0.08:
             print(f"[DEBUG] DONE: Too Low! altitude={pos[2]:.3f}")
             return True
-        if distance > 15.0:
+        if distance > 5.0:
             print(f"[DEBUG] DONE: Out of bounds! dist={distance:.3f}")
             return True
         if tilt > 1.4:
@@ -582,7 +497,6 @@ class HoverEnv(BaseSingleAgentAviary):
             "angular_velocity": state[13:16].copy(),
             "wind": self.last_wind.copy(),
             "desired_velocity": self.last_desired_velocity.copy(),
-            "dynamic_lookahead": getattr(self, "current_dynamic_lookahead", 0.25),
             "episode_reward": float(self.episode_reward),
             "episode_min_distance": float(self.episode_min_distance),
             "episode_max_tilt": float(self.episode_max_tilt),
@@ -599,20 +513,19 @@ class HoverEnv(BaseSingleAgentAviary):
         if not self.GUI:
             return
 
-        if not hasattr(self, "_target_body_id") or self._target_body_id == -1:
-            self._target_body_id = p.loadURDF(
-                "assets/tracking_target.urdf",
-                self.TARGET_POS.tolist(),
-                useFixedBase=True,
-                physicsClientId=self.CLIENT
-            )
-        else:
-            p.resetBasePositionAndOrientation(
-                self._target_body_id, 
-                self.TARGET_POS.tolist(), 
-                [0, 0, 0, 1], 
-                physicsClientId=self.CLIENT
-            )
+        visual_shape = p.createVisualShape(
+            shapeType=p.GEOM_SPHERE,
+            radius=self.GOAL_RADIUS,
+            rgbaColor=[0.1, 0.8, 0.2, 0.45],
+            physicsClientId=self.CLIENT,
+        )
+        p.createMultiBody(
+            baseMass=0,
+            baseCollisionShapeIndex=-1,
+            baseVisualShapeIndex=visual_shape,
+            basePosition=self.TARGET_POS.tolist(),
+            physicsClientId=self.CLIENT,
+        )
 
     def _draw_wind(self):
         if not self.GUI or self.step_counter % 12 != 0:
@@ -729,86 +642,94 @@ class HoverEnv(BaseSingleAgentAviary):
         self.dryden_x_u = np.zeros((Ac_u.shape[0], 1), dtype=np.float32)
         self.dryden_x_v = np.zeros((Ac_v.shape[0], 1), dtype=np.float32)
 
-    def promote_curriculum_stage(self):
-        """Called by external SB3 callback to advance difficulty."""
-        if getattr(self, "current_curriculum_stage", 1) < 3:
-            self.current_curriculum_stage += 1
-            print(f"[ENVIRONMENT] *** Curriculum Promoted to Stage {self.current_curriculum_stage}! ***")
-            return True
-        return False
-
     def _addObstacles(self):
-        """Add dynamic obstacles for the active scenario."""
+        """Add dynamic obstacles with different shapes (Box and Sphere) that patrol Y.
+        
+        Called after every reset() because BaseAviary.reset() calls
+        p.resetSimulation() which destroys all previously created bodies.
+        Obstacles move each physics step via _updateObstacles().
+        """
         if not self.OBSTACLES:
             return
 
         self.obstacle_radius = 0.12
-        self.obstacle_configs = []
-        scenario = getattr(self, "active_scenario", "slalom")
 
-        if scenario == "slalom":
-            self.obstacle_configs = [
-                {"pos": np.array([0.7, -0.4, 1.0], dtype=np.float32), "axis": 1, "speed": 0.2, "bounds": [-0.6, 0.0], "direction": 1.0, "shape": "cylinder", "color": [0.72, 0.72, 0.70, 1.0], "radius": 0.12},
-                {"pos": np.array([1.4, 0.4, 1.0], dtype=np.float32), "axis": 1, "speed": 0.2, "bounds": [0.0, 0.6], "direction": -1.0, "shape": "cylinder", "color": [0.28, 0.30, 0.35, 1.0], "radius": 0.12},
-                {"pos": np.array([2.1, 0.0, 1.0], dtype=np.float32), "axis": 1, "speed": 0.2, "bounds": [-0.4, 0.4], "direction": 1.0, "shape": "cylinder", "color": [0.60, 0.70, 0.80, 1.0], "radius": 0.12}
-            ]
-        elif scenario == "tracking":
-            # Clean, professional minimalist tracking: 2 static grey cylinders to weave around
-            self.obstacle_configs = [
-                {"pos": np.array([1.5, 0.5, 1.0], dtype=np.float32), "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, "shape": "cylinder", "color": [0.4, 0.4, 0.4, 1.0], "radius": 0.15},
-                {"pos": np.array([1.5, -0.5, 1.0], dtype=np.float32), "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, "shape": "cylinder", "color": [0.4, 0.4, 0.4, 1.0], "radius": 0.15}
-            ]
-        elif scenario == "forest":
-            # Procedural Forest: Grid with Jitter (8 trees)
-            xs = np.linspace(0.4, 1.8, 4)
-            ys = np.linspace(-0.5, 0.5, 2)
-            for x in xs:
-                for y in ys:
-                    jx = x + np.random.uniform(-0.1, 0.1)
-                    jy = y + np.random.uniform(-0.2, 0.2)
-                    is_static = (np.random.rand() > 0.4)
-                    speed = 0.0 if is_static else np.random.uniform(0.05, 0.2)
-                    rad = np.random.uniform(0.04, 0.08)
-                    # Clean matte brown
-                    color = [0.4, 0.3, 0.2, 1.0]
-                    self.obstacle_configs.append({
-                        "pos": np.array([jx, jy, 1.0], dtype=np.float32),
-                        "axis": 1, "speed": speed, "bounds": [jy - 0.2, jy + 0.2],
-                        "direction": 1.0 if np.random.rand() > 0.5 else -1.0,
-                        "shape": "cylinder", "color": color, "radius": rad
-                    })
-        elif scenario == "racing":
-            # Professional standard racing gates (URDF)
-            for x in [1.5, 3.0, 4.5, 6.0]:
-                self.obstacle_configs.append({
-                    "pos": np.array([x, 0.0, 0.0], dtype=np.float32), 
-                    "axis": 1, "speed": 0.0, "bounds": [0,0], "direction": 1.0, 
-                    "shape": "urdf", "urdf_path": "assets/racing_gate.urdf"
-                })
+        # Define slalom obstacles spaced along the longer flight path:
+        # Obstacle 1: Concrete Box pillar at X = 0.5, Y-bounds: [-0.4, 0.0]
+        # Obstacle 2: Steel Cylinder pillar at X = 1.0, Y-bounds: [0.1, 0.5]
+        # Obstacle 3: Metallic floating Sphere at X = 1.5, Y-bounds: [0.6, 1.0]
+        self.obstacle_configs = [
+            {
+                "pos": np.array([0.5, -0.2, 1.0], dtype=np.float32),
+                "axis": 1,          # Y-axis patrol
+                "speed": 0.15,      # m/s
+                "bounds": [-0.4, 0.0],
+                "direction": 1.0,
+                "shape": "box",
+                "color": [0.72, 0.72, 0.70, 1.0] # Concrete grey
+            },
+            {
+                "pos": np.array([1.0, 0.3, 1.0], dtype=np.float32),
+                "axis": 1,          # Y-axis patrol
+                "speed": 0.15,      # m/s
+                "bounds": [0.1, 0.5],
+                "direction": -1.0,
+                "shape": "cylinder",
+                "color": [0.28, 0.30, 0.35, 1.0] # Slate steel
+            },
+            {
+                "pos": np.array([1.5, 0.8, 1.0], dtype=np.float32),
+                "axis": 1,          # Y-axis patrol
+                "speed": 0.15,      # m/s
+                "bounds": [0.6, 1.0],
+                "direction": 1.0,
+                "shape": "sphere",
+                "color": [0.60, 0.70, 0.80, 1.0] # Chrome steel
+            },
+        ]
 
         self.obstacle_positions = [cfg["pos"].copy() for cfg in self.obstacle_configs]
         self.obstacle_ids = []
 
         for cfg in self.obstacle_configs:
-            shape = cfg["shape"]
-            
-            if shape == "urdf":
-                body_id = p.loadURDF(cfg["urdf_path"], cfg["pos"], useFixedBase=True, physicsClientId=self.CLIENT)
-                self.obstacle_ids.append(body_id)
-                continue
-                
-            color = cfg["color"]
-            if shape == "box":
-                extents = cfg.get("extents", [self.obstacle_radius, self.obstacle_radius, 1.0])
-                col_shape = p.createCollisionShape(p.GEOM_BOX, halfExtents=extents, physicsClientId=self.CLIENT)
-                vis_shape = p.createVisualShape(p.GEOM_BOX, halfExtents=extents, rgbaColor=color, physicsClientId=self.CLIENT)
-            elif shape == "cylinder":
-                r = cfg.get("radius", self.obstacle_radius)
-                col_shape = p.createCollisionShape(p.GEOM_CYLINDER, radius=r, height=2.0, physicsClientId=self.CLIENT)
-                vis_shape = p.createVisualShape(p.GEOM_CYLINDER, radius=r, length=2.0, rgbaColor=color, physicsClientId=self.CLIENT)
+            if cfg["shape"] == "box":
+                col_shape = p.createCollisionShape(
+                    p.GEOM_BOX,
+                    halfExtents=[self.obstacle_radius, self.obstacle_radius, 1.0],
+                    physicsClientId=self.CLIENT
+                )
+                vis_shape = p.createVisualShape(
+                    p.GEOM_BOX,
+                    halfExtents=[self.obstacle_radius, self.obstacle_radius, 1.0],
+                    rgbaColor=cfg["color"],
+                    physicsClientId=self.CLIENT
+                )
+            elif cfg["shape"] == "cylinder":
+                col_shape = p.createCollisionShape(
+                    p.GEOM_CYLINDER,
+                    radius=self.obstacle_radius,
+                    height=2.0,
+                    physicsClientId=self.CLIENT
+                )
+                vis_shape = p.createVisualShape(
+                    p.GEOM_CYLINDER,
+                    radius=self.obstacle_radius,
+                    length=2.0,
+                    rgbaColor=cfg["color"],
+                    physicsClientId=self.CLIENT
+                )
             else:  # sphere
-                col_shape = p.createCollisionShape(p.GEOM_SPHERE, radius=self.obstacle_radius, physicsClientId=self.CLIENT)
-                vis_shape = p.createVisualShape(p.GEOM_SPHERE, radius=self.obstacle_radius, rgbaColor=color, physicsClientId=self.CLIENT)
+                col_shape = p.createCollisionShape(
+                    p.GEOM_SPHERE,
+                    radius=self.obstacle_radius,
+                    physicsClientId=self.CLIENT
+                )
+                vis_shape = p.createVisualShape(
+                    p.GEOM_SPHERE,
+                    radius=self.obstacle_radius,
+                    rgbaColor=cfg["color"],
+                    physicsClientId=self.CLIENT
+                )
 
             body_id = p.createMultiBody(
                 baseMass=0.0,
@@ -818,6 +739,7 @@ class HoverEnv(BaseSingleAgentAviary):
                 physicsClientId=self.CLIENT
             )
             self.obstacle_ids.append(body_id)
+            print(f"[INFO] Spawned dynamic {cfg['shape']} obstacle ID {body_id} at {cfg['pos']}, speed={cfg['speed']} m/s")
 
     def _updateObstacles(self):
         """Move each obstacle along its patrol axis, bouncing at bounds."""
